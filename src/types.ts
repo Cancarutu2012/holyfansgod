@@ -2,6 +2,7 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  role?: "admin" | "user";
   haloBadge?: string;
   avatarUrl?: string;
   createdAt: string;
@@ -28,3 +29,4 @@ export interface AuthResponse {
   token?: string;
   message?: string;
 }
+

@@ -11,6 +11,10 @@ import { PostCard } from "./components/PostCard";
 import { UploadModal } from "./components/UploadModal";
 import { AuthModal } from "./components/AuthModal";
 import { ImageLightboxModal } from "./components/ImageLightboxModal";
+import { ProfileModal } from "./components/ProfileModal";
+import { MyPostsModal } from "./components/MyPostsModal";
+import { AdminPanelModal } from "./components/AdminPanelModal";
+import { EditPostModal } from "./components/EditPostModal";
 import {
   Sparkles,
   Upload,
@@ -25,6 +29,10 @@ export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isMyPostsOpen, setIsMyPostsOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [editPostTarget, setEditPostTarget] = useState<Post | null>(null);
   const [authModal, setAuthModal] = useState<{
     isOpen: boolean;
     tab: "login" | "register";
@@ -121,6 +129,50 @@ export default function App() {
     }
   };
 
+  // Handle user profile update
+  const handleUserUpdated = (updatedUser: User) => {
+    setCurrentUser(updatedUser);
+    localStorage.setItem("holyfans_user", JSON.stringify(updatedUser));
+    // Synchronize loaded posts with new author name and avatar
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.authorId === updatedUser.id || p.authorEmail === updatedUser.email
+          ? {
+              ...p,
+              authorName: updatedUser.displayName,
+              authorHalo: updatedUser.haloBadge,
+              authorAvatar: updatedUser.avatarUrl,
+            }
+          : p
+      )
+    );
+    showToast("Profil adatok sikeresen elmentve! ✨");
+  };
+
+  // Handle post update (title, subtitle)
+  const handlePostUpdated = (updatedPost: Post) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === updatedPost.id ? updatedPost : p))
+    );
+    if (lightboxPost && lightboxPost.id === updatedPost.id) {
+      setLightboxPost(updatedPost);
+    }
+    showToast("A bejegyzés sikeresen módosítva lett!");
+  };
+
+  // Handle post delete
+  const handlePostDeleted = (postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    setStats((prev) => ({
+      ...prev,
+      totalPosts: Math.max(0, prev.totalPosts - 1),
+    }));
+    if (lightboxPost && lightboxPost.id === postId) {
+      setLightboxPost(null);
+    }
+    showToast("A bejegyzés törölve lett.");
+  };
+
   // Handle Logout
   const handleLogout = () => {
     localStorage.removeItem("holyfans_user");
@@ -167,6 +219,9 @@ export default function App() {
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenAuth={(tab = "login") => setAuthModal({ isOpen: true, tab })}
         onLogout={handleLogout}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenMyPosts={() => setIsMyPostsOpen(true)}
+        onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
         postCount={posts.length}
       />
 
@@ -364,6 +419,41 @@ export default function App() {
         post={lightboxPost}
         onClose={() => setLightboxPost(null)}
         onBless={handleBless}
+      />
+
+      <ProfileModal
+        isOpen={isProfileOpen}
+        currentUser={currentUser}
+        onClose={() => setIsProfileOpen(false)}
+        onUserUpdated={handleUserUpdated}
+      />
+
+      <MyPostsModal
+        isOpen={isMyPostsOpen}
+        currentUser={currentUser}
+        posts={posts}
+        onClose={() => setIsMyPostsOpen(false)}
+        onOpenUpload={() => setIsUploadOpen(true)}
+        onOpenEditPost={(post) => setEditPostTarget(post)}
+        onPostDeleted={handlePostDeleted}
+        onOpenLightbox={(post) => setLightboxPost(post)}
+      />
+
+      <AdminPanelModal
+        isOpen={isAdminPanelOpen}
+        currentUser={currentUser}
+        posts={posts}
+        onClose={() => setIsAdminPanelOpen(false)}
+        onOpenEditPost={(post) => setEditPostTarget(post)}
+        onPostDeleted={handlePostDeleted}
+        onPostsRefreshed={fetchPostsAndStats}
+      />
+
+      <EditPostModal
+        isOpen={Boolean(editPostTarget)}
+        post={editPostTarget}
+        onClose={() => setEditPostTarget(null)}
+        onPostUpdated={handlePostUpdated}
       />
     </div>
   );

@@ -19,6 +19,21 @@ async function parseResponseSafe(res: Response): Promise<{ isJson: boolean; data
 }
 
 export const api = {
+  // Get active session token
+  getToken(): string | null {
+    try {
+      return localStorage.getItem("holyfans_token");
+    } catch {
+      return null;
+    }
+  },
+
+  setToken(token: string) {
+    try {
+      localStorage.setItem("holyfans_token", token);
+    } catch {}
+  },
+
   // Get all feed posts
   async getPosts(): Promise<{ success: boolean; posts: Post[] }> {
     try {
@@ -218,6 +233,34 @@ export const api = {
       if (status === 404 || !isJson) {
         const local = readLocalDb();
         const trimmedEmail = payload.email.trim().toLowerCase();
+
+        if (trimmedEmail === "admin@holyfans.com" && payload.password === "admin") {
+          let adminUser = local.users.find((u) => u.email.toLowerCase() === "admin@holyfans.com");
+          if (!adminUser) {
+            adminUser = {
+              id: "admin-holy-1",
+              email: "admin@holyfans.com",
+              password: "admin",
+              displayName: "Főpap Admin",
+              role: "admin",
+              haloBadge: "Arkangyal Adminisztrátor",
+              avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            };
+            local.users.unshift(adminUser);
+          } else {
+            adminUser.role = "admin";
+          }
+          writeLocalDb(local);
+          const { password: _, ...safeAdmin } = adminUser;
+          return {
+            success: true,
+            message: "Sikeres bejelentkezés mint Főpap Adminisztrátor!",
+            user: safeAdmin,
+            token: `token-${adminUser.id}`,
+          };
+        }
+
         const user = local.users.find(
           (u) => u.email.toLowerCase() === trimmedEmail && u.password === payload.password
         );
@@ -431,4 +474,385 @@ export const api = {
       return { success: false, blessings: 0 };
     }
   },
+
+  // Update User Profile (display name, halo badge, avatar URL, password)
+  async updateProfile(
+    token: string,
+    payload: {
+      displayName?: string;
+      haloBadge?: string;
+      avatarUrl?: string;
+      password?: string;
+    }
+  ): Promise<{ success: boolean; message: string; user?: User }> {
+    try {
+      const res = await fetch("/api/users/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data) {
+        return data;
+      }
+
+      // Fallback
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const userId = token.replace("token-", "");
+        const user = local.users.find((u) => u.id === userId);
+
+        if (!user) {
+          return { success: false, message: "A felhasználó nem található!" };
+        }
+
+        if (payload.displayName?.trim()) user.displayName = payload.displayName.trim();
+        if (payload.haloBadge?.trim()) user.haloBadge = payload.haloBadge.trim();
+        if (payload.avatarUrl?.trim()) user.avatarUrl = payload.avatarUrl.trim();
+        if (payload.password && payload.password.length >= 4) user.password = payload.password;
+
+        // Sync posts
+        for (const post of local.posts) {
+          if (post.authorId === user.id || post.authorEmail === user.email) {
+            if (user.displayName) post.authorName = user.displayName;
+            if (user.avatarUrl) post.authorAvatar = user.avatarUrl;
+            if (user.haloBadge) post.authorHalo = user.haloBadge;
+          }
+        }
+
+        writeLocalDb(local);
+        const { password: _, ...safeUser } = user;
+        return {
+          success: true,
+          message: "A profilod adatai áldással frissültek!",
+          user: safeUser,
+        };
+      }
+
+      return { success: false, message: "Nem sikerült a profil frissítése." };
+    } catch {
+      const local = readLocalDb();
+      const userId = token.replace("token-", "");
+      const user = local.users.find((u) => u.id === userId);
+
+      if (!user) {
+        return { success: false, message: "A felhasználó nem található!" };
+      }
+
+      if (payload.displayName?.trim()) user.displayName = payload.displayName.trim();
+      if (payload.haloBadge?.trim()) user.haloBadge = payload.haloBadge.trim();
+      if (payload.avatarUrl?.trim()) user.avatarUrl = payload.avatarUrl.trim();
+      if (payload.password && payload.password.length >= 4) user.password = payload.password;
+
+      for (const post of local.posts) {
+        if (post.authorId === user.id || post.authorEmail === user.email) {
+          if (user.displayName) post.authorName = user.displayName;
+          if (user.avatarUrl) post.authorAvatar = user.avatarUrl;
+          if (user.haloBadge) post.authorHalo = user.haloBadge;
+        }
+      }
+
+      writeLocalDb(local);
+      const { password: _, ...safeUser } = user;
+      return {
+        success: true,
+        message: "A profilod adatai áldással frissültek!",
+        user: safeUser,
+      };
+    }
+  },
+
+  // Upload Profile Avatar File
+  async uploadAvatar(
+    token: string,
+    file: File
+  ): Promise<{ success: boolean; message: string; avatarUrl?: string; user?: User }> {
+    try {
+      const formData = new FormData();
+      formData.append("avatar", file);
+
+      const res = await fetch("/api/users/avatar", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data && data.success) {
+        return data;
+      }
+
+      // Fallback: convert file to dataUrl and save in localDb
+      if (status === 404 || !isJson) {
+        const dataUrl = await fileToDataUrl(file);
+        const local = readLocalDb();
+        const userId = token.replace("token-", "");
+        const user = local.users.find((u) => u.id === userId);
+
+        if (!user) {
+          return { success: false, message: "A felhasználó nem található." };
+        }
+
+        user.avatarUrl = dataUrl;
+        for (const post of local.posts) {
+          if (post.authorId === user.id || post.authorEmail === user.email) {
+            post.authorAvatar = dataUrl;
+          }
+        }
+        writeLocalDb(local);
+
+        const { password: _, ...safeUser } = user;
+        return {
+          success: true,
+          message: "Profilkép sikeresen beállítva!",
+          avatarUrl: dataUrl,
+          user: safeUser,
+        };
+      }
+
+      return { success: false, message: "A profilkép feltöltése sikertelen." };
+    } catch {
+      const dataUrl = await fileToDataUrl(file);
+      const local = readLocalDb();
+      const userId = token.replace("token-", "");
+      const user = local.users.find((u) => u.id === userId);
+
+      if (!user) {
+        return { success: false, message: "A felhasználó nem található." };
+      }
+
+      user.avatarUrl = dataUrl;
+      for (const post of local.posts) {
+        if (post.authorId === user.id || post.authorEmail === user.email) {
+          post.authorAvatar = dataUrl;
+        }
+      }
+      writeLocalDb(local);
+
+      const { password: _, ...safeUser } = user;
+      return {
+        success: true,
+        message: "Profilkép sikeresen beállítva!",
+        avatarUrl: dataUrl,
+        user: safeUser,
+      };
+    }
+  },
+
+  // Edit Post (title, subtitle)
+  async updatePost(
+    token: string,
+    postId: string,
+    payload: { title: string; subtitle: string }
+  ): Promise<{ success: boolean; message: string; post?: Post }> {
+    try {
+      const res = await fetch(`/api/posts/${postId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data) {
+        return data;
+      }
+
+      // Fallback
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const post = local.posts.find((p) => p.id === postId);
+        if (!post) {
+          return { success: false, message: "A bejegyzés nem található." };
+        }
+        post.title = payload.title.trim();
+        post.subtitle = (payload.subtitle || "").trim();
+        writeLocalDb(local);
+
+        return {
+          success: true,
+          message: "A bejegyzés sikeresen módosítva lett!",
+          post,
+        };
+      }
+
+      return { success: false, message: "Nem sikerült a bejegyzés módosítása." };
+    } catch {
+      const local = readLocalDb();
+      const post = local.posts.find((p) => p.id === postId);
+      if (!post) {
+        return { success: false, message: "A bejegyzés nem található." };
+      }
+      post.title = payload.title.trim();
+      post.subtitle = (payload.subtitle || "").trim();
+      writeLocalDb(local);
+
+      return {
+        success: true,
+        message: "A bejegyzés sikeresen módosítva lett!",
+        post,
+      };
+    }
+  },
+
+  // Delete Post
+  async deletePost(
+    token: string,
+    postId: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetch(`/api/posts/${postId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data) {
+        return data;
+      }
+
+      // Fallback
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        local.posts = local.posts.filter((p) => p.id !== postId);
+        writeLocalDb(local);
+        return { success: true, message: "A bejegyzés sikeresen törölve lett." };
+      }
+
+      return { success: false, message: "A törlés sikertelen volt." };
+    } catch {
+      const local = readLocalDb();
+      local.posts = local.posts.filter((p) => p.id !== postId);
+      writeLocalDb(local);
+      return { success: true, message: "A bejegyzés sikeresen törölve lett." };
+    }
+  },
+
+  // Admin: Get all users with post counts
+  async getAdminUsers(token: string): Promise<{ success: boolean; users: Array<User & { postCount: number }> }> {
+    try {
+      const res = await fetch("/api/admin/users", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data?.success && Array.isArray(data.users)) {
+        return data;
+      }
+
+      // Fallback
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const users = local.users.map(({ password: _, ...u }) => ({
+          ...u,
+          postCount: local.posts.filter((p) => p.authorId === u.id || p.authorEmail === u.email).length,
+        }));
+        return { success: true, users };
+      }
+
+      return { success: false, users: [] };
+    } catch {
+      const local = readLocalDb();
+      const users = local.users.map(({ password: _, ...u }) => ({
+        ...u,
+        postCount: local.posts.filter((p) => p.authorId === u.id || p.authorEmail === u.email).length,
+      }));
+      return { success: true, users };
+    }
+  },
+
+  // Admin: Delete user
+  async deleteAdminUser(token: string, userId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data) {
+        return data;
+      }
+
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const target = local.users.find((u) => u.id === userId);
+        if (!target) {
+          return { success: false, message: "Felhasználó nem található." };
+        }
+        local.users = local.users.filter((u) => u.id !== userId);
+        local.posts = local.posts.filter((p) => p.authorId !== userId && p.authorEmail !== target.email);
+        writeLocalDb(local);
+        return { success: true, message: `Felhasználó (${target.displayName}) sikeresen törölve.` };
+      }
+
+      return { success: false, message: "A felhasználó törlése nem sikerült." };
+    } catch {
+      const local = readLocalDb();
+      const target = local.users.find((u) => u.id === userId);
+      if (!target) {
+        return { success: false, message: "Felhasználó nem található." };
+      }
+      local.users = local.users.filter((u) => u.id !== userId);
+      local.posts = local.posts.filter((p) => p.authorId !== userId && p.authorEmail !== target.email);
+      writeLocalDb(local);
+      return { success: true, message: `Felhasználó (${target.displayName}) sikeresen törölve.` };
+    }
+  },
+
+  // Admin: Change user role
+  async setAdminRole(
+    token: string,
+    userId: string,
+    role: "admin" | "user"
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/role`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ role }),
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data) {
+        return data;
+      }
+
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const target = local.users.find((u) => u.id === userId);
+        if (!target) return { success: false, message: "Felhasználó nem található." };
+        target.role = role;
+        writeLocalDb(local);
+        return { success: true, message: `Szerepkör sikeresen módosítva: ${role}` };
+      }
+
+      return { success: false, message: "Nem sikerült a szerepkör módosítása." };
+    } catch {
+      const local = readLocalDb();
+      const target = local.users.find((u) => u.id === userId);
+      if (!target) return { success: false, message: "Felhasználó nem található." };
+      target.role = role;
+      writeLocalDb(local);
+      return { success: true, message: `Szerepkör sikeresen módosítva: ${role}` };
+    }
+  },
 };
+

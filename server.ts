@@ -28,6 +28,7 @@ interface DatabaseSchema {
     email: string;
     password: string;
     displayName: string;
+    role?: "admin" | "user";
     haloBadge?: string;
     avatarUrl?: string;
     createdAt: string;
@@ -63,14 +64,50 @@ function readDb(): DatabaseSchema {
         }
       }
 
-      const initial: DatabaseSchema = { users: [], posts: [] };
+      const initial: DatabaseSchema = {
+        users: [
+          {
+            id: "admin-holy-1",
+            email: "admin@holyfans.com",
+            password: "admin",
+            displayName: "Főpap Admin",
+            role: "admin",
+            haloBadge: "Arkangyal Adminisztrátor",
+            avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        posts: [],
+      };
       try {
         fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
       } catch {}
       return initial;
     }
     const content = fs.readFileSync(DB_FILE, "utf-8");
-    return JSON.parse(content);
+    const data = JSON.parse(content);
+    if (!Array.isArray(data.users)) data.users = [];
+    if (!Array.isArray(data.posts)) data.posts = [];
+
+    // Ensure admin is present
+    const hasAdmin = data.users.some(
+      (u: any) => u.email && u.email.toLowerCase() === "admin@holyfans.com"
+    );
+    if (!hasAdmin) {
+      data.users.unshift({
+        id: "admin-holy-1",
+        email: "admin@holyfans.com",
+        password: "admin",
+        displayName: "Főpap Admin",
+        role: "admin",
+        haloBadge: "Arkangyal Adminisztrátor",
+        avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      writeDb(data);
+    }
+
+    return data;
   } catch (err) {
     console.error("Error reading database.json:", err);
     return { users: [], posts: [] };
@@ -196,6 +233,37 @@ app.post("/api/login", (req: Request, res: Response) => {
 
   const trimmedEmail = email.trim().toLowerCase();
   const db = readDb();
+
+  // Guaranteed admin login handler
+  if (trimmedEmail === "admin@holyfans.com" && password === "admin") {
+    let adminUser = db.users.find((u) => u.email.toLowerCase() === "admin@holyfans.com");
+    if (!adminUser) {
+      adminUser = {
+        id: "admin-holy-1",
+        email: "admin@holyfans.com",
+        password: "admin",
+        displayName: "Főpap Admin",
+        role: "admin",
+        haloBadge: "Arkangyal Adminisztrátor",
+        avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      };
+      db.users.unshift(adminUser);
+      writeDb(db);
+    } else {
+      adminUser.role = "admin";
+      writeDb(db);
+    }
+    const { password: _, ...safeAdmin } = adminUser;
+    res.json({
+      success: true,
+      message: "Sikeres bejelentkezés mint Főpap Adminisztrátor!",
+      user: safeAdmin,
+      token: `token-${adminUser.id}`,
+    });
+    return;
+  }
+
   const user = db.users.find((u) => u.email.toLowerCase() === trimmedEmail);
 
   if (!user || user.password !== password) {
@@ -212,21 +280,24 @@ app.post("/api/login", (req: Request, res: Response) => {
   });
 });
 
-// Authentication: Current user profile
-app.get("/api/me", (req: Request, res: Response) => {
+// Helper to get authenticated user
+function getAuthUser(req: Request, db: DatabaseSchema) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve." });
-    return;
+    return null;
   }
-
   const token = authHeader.replace("Bearer ", "").trim();
   const userId = token.replace("token-", "");
+  return db.users.find((u) => u.id === userId) || null;
+}
+
+// Authentication: Current user profile
+app.get("/api/me", (req: Request, res: Response) => {
   const db = readDb();
-  const user = db.users.find((u) => u.id === userId);
+  const user = getAuthUser(req, db);
 
   if (!user) {
-    res.status(404).json({ success: false, message: "Felhasználó nem található." });
+    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve vagy a felhasználó nem található." });
     return;
   }
 
@@ -234,7 +305,87 @@ app.get("/api/me", (req: Request, res: Response) => {
   res.json({ success: true, user: safeUser });
 });
 
+// User Profile Update (Name, Halo Badge, Avatar URL, Password)
+app.put("/api/users/profile", (req: Request, res: Response) => {
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve!" });
+    return;
+  }
+
+  const { displayName, haloBadge, avatarUrl, password } = req.body;
+
+  if (displayName && typeof displayName === "string" && displayName.trim()) {
+    user.displayName = displayName.trim();
+  }
+  if (haloBadge && typeof haloBadge === "string" && haloBadge.trim()) {
+    user.haloBadge = haloBadge.trim();
+  }
+  if (avatarUrl && typeof avatarUrl === "string" && avatarUrl.trim()) {
+    user.avatarUrl = avatarUrl.trim();
+  }
+  if (password && typeof password === "string" && password.trim().length >= 4) {
+    user.password = password.trim();
+  }
+
+  // Update existing posts by this user to keep display name and avatar in sync
+  for (const post of db.posts) {
+    if (post.authorId === user.id || post.authorEmail === user.email) {
+      if (user.displayName) post.authorName = user.displayName;
+      if (user.avatarUrl) post.authorAvatar = user.avatarUrl;
+      if (user.haloBadge) post.authorHalo = user.haloBadge;
+    }
+  }
+
+  writeDb(db);
+
+  const { password: _, ...safeUser } = user;
+  res.json({
+    success: true,
+    message: "A profilod adatai áldással frissültek!",
+    user: safeUser,
+  });
+});
+
+// Upload profile picture directly
+app.post("/api/users/avatar", upload.single("avatar"), (req: Request, res: Response) => {
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve!" });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ success: false, message: "Nem érkezett képfájl." });
+    return;
+  }
+
+  const avatarUrl = `/pics/${req.file.filename}`;
+  user.avatarUrl = avatarUrl;
+
+  for (const post of db.posts) {
+    if (post.authorId === user.id || post.authorEmail === user.email) {
+      post.authorAvatar = avatarUrl;
+    }
+  }
+
+  writeDb(db);
+
+  const { password: _, ...safeUser } = user;
+  res.json({
+    success: true,
+    message: "Profilkép sikeresen frissítve!",
+    avatarUrl,
+    user: safeUser,
+  });
+});
+
 // Feed: Get all posts
+
 app.get("/api/posts", (req: Request, res: Response) => {
   const db = readDb();
   // Sort posts in reverse chronological order (newest first)
@@ -307,6 +458,166 @@ app.post("/api/posts/:id/bless", (req: Request, res: Response) => {
     message: "Áldás elküldve! Amen!",
   });
 });
+
+// Post edit (Title and Subtitle)
+app.put("/api/posts/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { title, subtitle } = req.body;
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "A művelethez bejelentkezés szükséges." });
+    return;
+  }
+
+  const postIndex = db.posts.findIndex((p) => p.id === id);
+  if (postIndex === -1) {
+    res.status(404).json({ success: false, message: "A bejegyzés nem található." });
+    return;
+  }
+
+  const post = db.posts[postIndex];
+  const isOwner = post.authorId === user.id || post.authorEmail === user.email;
+  const isAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
+
+  if (!isOwner && !isAdmin) {
+    res.status(403).json({ success: false, message: "Csak a bejegyzés szerzője vagy az Admin szerkesztheti a bejegyzést!" });
+    return;
+  }
+
+  if (title && typeof title === "string" && title.trim()) {
+    post.title = title.trim();
+  }
+  if (typeof subtitle === "string") {
+    post.subtitle = subtitle.trim();
+  }
+
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: "A szent bejegyzés sikeresen módosítva lett!",
+    post,
+  });
+});
+
+// Post deletion
+app.delete("/api/posts/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "A törléshez bejelentkezés szükséges." });
+    return;
+  }
+
+  const postIndex = db.posts.findIndex((p) => p.id === id);
+  if (postIndex === -1) {
+    res.status(404).json({ success: false, message: "A bejegyzés nem található." });
+    return;
+  }
+
+  const post = db.posts[postIndex];
+  const isOwner = post.authorId === user.id || post.authorEmail === user.email;
+  const isAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
+
+  if (!isOwner && !isAdmin) {
+    res.status(403).json({ success: false, message: "Nincs jogosultságod a bejegyzés törléséhez!" });
+    return;
+  }
+
+  db.posts.splice(postIndex, 1);
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: "A bejegyzés sikeresen törölve lett.",
+  });
+});
+
+// Admin: Get all users
+app.get("/api/admin/users", (req: Request, res: Response) => {
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+    res.status(403).json({ success: false, message: "Csak Adminisztrátor férhet hozzá ehhez az oldalhoz." });
+    return;
+  }
+
+  const usersWithMeta = db.users.map(({ password, ...u }) => ({
+    ...u,
+    postCount: db.posts.filter((p) => p.authorId === u.id || p.authorEmail === u.email).length,
+  }));
+
+  res.json({
+    success: true,
+    users: usersWithMeta,
+  });
+});
+
+// Admin: Delete a user
+app.delete("/api/admin/users/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+    res.status(403).json({ success: false, message: "Csak Adminisztrátor végezhet felhasználó törlést!" });
+    return;
+  }
+
+  if (user.id === id) {
+    res.status(400).json({ success: false, message: "A saját adminisztrátori fiókodat nem törölheted!" });
+    return;
+  }
+
+  const userIndex = db.users.findIndex((u) => u.id === id);
+  if (userIndex === -1) {
+    res.status(404).json({ success: false, message: "Felhasználó nem található." });
+    return;
+  }
+
+  const removedUser = db.users.splice(userIndex, 1)[0];
+  // Also clean up or keep posts
+  db.posts = db.posts.filter((p) => p.authorId !== id && p.authorEmail !== removedUser.email);
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: `Felhasználó (${removedUser.displayName}) és bejegyzései sikeresen törölve.`,
+  });
+});
+
+// Admin: Change user role
+app.put("/api/admin/users/:id/role", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { role } = req.body;
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+    res.status(403).json({ success: false, message: "Csak Adminisztrátor módosíthatja a szerepköröket!" });
+    return;
+  }
+
+  const target = db.users.find((u) => u.id === id);
+  if (!target) {
+    res.status(404).json({ success: false, message: "Felhasználó nem található." });
+    return;
+  }
+
+  target.role = role === "admin" ? "admin" : "user";
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: `Szerepkör sikeresen módosítva: ${target.displayName} -> ${target.role}`,
+  });
+});
+
 
 // Community Statistics
 app.get("/api/stats", (req: Request, res: Response) => {

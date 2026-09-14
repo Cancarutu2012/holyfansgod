@@ -1,4 +1,16 @@
 {
-  "users": [],
+  "users": [
+    {
+      "id": "admin-holy-1",
+      "email": "admin@holyfans.com",
+      "password": "admin",
+      "displayName": "Főpap Admin",
+      "role": "admin",
+      "haloBadge": "Arkangyal Adminisztrátor",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
   "posts": []
 }
+
