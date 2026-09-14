@@ -125,8 +125,8 @@ export const api = {
   // Feed: Get all posts from the central server database
   async getPosts(): Promise<{ success: boolean; posts: Post[] }> {
     try {
-      const res = await fetch("/api/posts", {
-        headers: { "Cache-Control": "no-cache" },
+      const res = await fetch(`/api/posts?t=${Date.now()}`, {
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
       });
       const { isJson, data } = await parseResponseSafe(res);
 
@@ -176,8 +176,8 @@ export const api = {
     stats: { totalPosts: number; totalBelievers: number; totalBlessings: number };
   }> {
     try {
-      const res = await fetch("/api/stats", {
-        headers: { "Cache-Control": "no-cache" },
+      const res = await fetch(`/api/stats?t=${Date.now()}`, {
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
       });
       const { isJson, data } = await parseResponseSafe(res);
 
@@ -419,9 +419,11 @@ export const api = {
   // Admin: Get all users with post counts directly from central database.json
   async getAdminUsers(token: string): Promise<{ success: boolean; users: Array<User & { postCount: number }>; message?: string }> {
     try {
-      const res = await fetch("/api/admin/users", {
+      const res = await fetch(`/api/admin/users?t=${Date.now()}`, {
         headers: {
           Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
         },
       });
 
@@ -433,6 +435,28 @@ export const api = {
       return { success: false, users: [], message: data?.message || "Nem sikerült a felhasználók betöltése." };
     } catch (err: any) {
       return { success: false, users: [], message: err.message };
+    }
+  },
+
+  // Admin: Get all posts directly from central database.json
+  async getAdminPosts(token: string): Promise<{ success: boolean; posts: Post[]; message?: string }> {
+    try {
+      const res = await fetch(`/api/admin/posts?t=${Date.now()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+
+      const { isJson, data } = await parseResponseSafe(res);
+      if (isJson && data?.success && Array.isArray(data.posts)) {
+        return data;
+      }
+
+      return { success: false, posts: [], message: data?.message || "Nem sikerült a bejegyzések betöltése." };
+    } catch (err: any) {
+      return { success: false, posts: [], message: err.message };
     }
   },
 

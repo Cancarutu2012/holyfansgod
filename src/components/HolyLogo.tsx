@@ -8,19 +8,19 @@ interface HolyLogoProps {
 
 export const HolyLogo: React.FC<HolyLogoProps> = ({ size = "md", showTagline = false }) => {
   const iconDimensions = {
-    sm: "w-8 h-8",
-    md: "w-10 h-10",
-    lg: "w-14 h-14",
+    sm: "w-7 h-7 sm:w-8 sm:h-8",
+    md: "w-8 h-8 sm:w-10 sm:h-10",
+    lg: "w-11 h-11 sm:w-14 sm:h-14",
   };
 
   const textDimensions = {
-    sm: "text-lg",
-    md: "text-2xl",
-    lg: "text-4xl",
+    sm: "text-base sm:text-lg",
+    md: "text-lg sm:text-2xl",
+    lg: "text-2xl sm:text-4xl",
   };
 
   return (
-    <div className="flex items-center gap-3 select-none">
+    <div className="flex items-center gap-2 sm:gap-3 select-none shrink-0">
       {/* Glory Icon Emblem */}
       <div className="relative flex items-center justify-center">
         {/* Outer Rotating Sunburst Halo */}
@@ -48,7 +48,7 @@ export const HolyLogo: React.FC<HolyLogoProps> = ({ size = "md", showTagline = f
 
       {/* Brand Typography */}
       <div className="flex flex-col">
-        <div className="flex items-center gap-1.5 leading-none">
+        <div className="flex items-center gap-1 sm:gap-1.5 leading-none">
           <span className={`font-cinzel font-black tracking-wider text-neutral-100 ${textDimensions[size]}`}>
             HOLY
           </span>
@@ -57,7 +57,7 @@ export const HolyLogo: React.FC<HolyLogoProps> = ({ size = "md", showTagline = f
           >
             FANS
           </span>
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 ml-1">
+          <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 ml-1">
             GLORY
           </span>
         </div>

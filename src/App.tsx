@@ -276,12 +276,12 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col selection:bg-amber-500/30 selection:text-amber-200">
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col selection:bg-amber-500/30 selection:text-amber-200 overflow-x-hidden max-w-full w-full">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-400 text-neutral-950 font-semibold text-sm shadow-[0_0_30px_rgba(251,191,36,0.6)] animate-bounce">
-          <Sparkles className="w-4 h-4 fill-current text-neutral-950" />
-          <span>{toastMessage}</span>
+        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-amber-400 text-neutral-950 font-semibold text-xs sm:text-sm shadow-[0_0_30px_rgba(251,191,36,0.6)] animate-bounce max-w-[calc(100vw-32px)]">
+          <Sparkles className="w-4 h-4 fill-current text-neutral-950 shrink-0" />
+          <span className="truncate">{toastMessage}</span>
         </div>
       )}
 
@@ -298,11 +298,11 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 flex flex-col items-center">
+      <main className="flex-1 max-w-4xl w-full mx-auto px-3 sm:px-4 py-6 sm:py-8 flex flex-col items-center min-w-0">
         {/* Glorious Hero Banner */}
         <section
           id="holy-hero-banner"
-          className="relative w-full rounded-3xl p-6 sm:p-10 mb-10 overflow-hidden border border-amber-500/30 bg-gradient-to-b from-amber-950/40 via-neutral-900 to-neutral-950 shadow-[0_0_50px_rgba(245,158,11,0.12)] text-center"
+          className="relative w-full rounded-2xl sm:rounded-3xl p-5 sm:p-10 mb-8 sm:mb-10 overflow-hidden border border-amber-500/30 bg-gradient-to-b from-amber-950/40 via-neutral-900 to-neutral-950 shadow-[0_0_50px_rgba(245,158,11,0.12)] text-center"
         >
           {/* Subtle background glow circle */}
           <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />

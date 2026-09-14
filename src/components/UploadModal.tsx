@@ -120,10 +120,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-lg bg-neutral-900 border border-amber-500/30 rounded-2xl shadow-[0_0_50px_rgba(245,158,11,0.2)] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-neutral-950/80 backdrop-blur-md overflow-y-auto w-full max-w-full">
+      <div className="relative w-full max-w-lg bg-neutral-900 border border-amber-500/30 rounded-2xl shadow-[0_0_50px_rgba(245,158,11,0.2)] overflow-hidden my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/50">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-neutral-800 bg-neutral-950/50">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-400" />
             <h3 className="font-cinzel text-lg font-bold text-neutral-100">
@@ -140,7 +140,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
         {/* User alert if not logged in */}
         {!currentUser && (
-          <div className="mx-6 mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-200">
+          <div className="mx-4 sm:mx-6 mt-3 sm:mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-amber-200">
             <span>Bejelentkezés nélkül látogatóként teszel közzé.</span>
             <button
               type="button"
@@ -148,7 +148,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 onClose();
                 onOpenAuth();
               }}
-              className="font-semibold underline hover:text-white"
+              className="font-semibold underline hover:text-white text-left sm:text-right"
             >
               Belépés / Regisztráció
             </button>
@@ -156,7 +156,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3.5 sm:space-y-4">
           {/* File Picker / Drag & Drop Area */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-amber-300/90 mb-2">

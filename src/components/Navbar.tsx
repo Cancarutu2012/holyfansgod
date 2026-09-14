@@ -38,24 +38,26 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isAdmin = currentUser?.role === "admin" || currentUser?.email === "admin@holyfans.com";
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-amber-500/20 bg-neutral-950/85 backdrop-blur-md">
-      <div className="max-w-6xl mx-auto px-4 h-18 flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-40 w-full max-w-full border-b border-amber-500/20 bg-neutral-950/85 backdrop-blur-md">
+      <div className="max-w-6xl mx-auto px-2.5 sm:px-4 h-16 sm:h-18 flex items-center justify-between gap-2 sm:gap-4 w-full min-w-0">
         {/* Logo and Brand */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center min-w-0 shrink">
           <HolyLogo size="md" />
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {/* Admin Panel Quick Access Button */}
           {isAdmin && (
             <button
               id="nav-admin-panel-btn"
               onClick={onOpenAdminPanel}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] transition-all transform active:scale-95"
+              className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] transition-all transform active:scale-95 shrink-0"
+              title="Admin Panel"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 stroke-[2.5]" />
-              <span>Admin Panel</span>
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 stroke-[2.5] shrink-0" />
+              <span className="hidden xs:inline sm:inline">Admin</span>
+              <span className="hidden sm:inline"> Panel</span>
             </button>
           )}
 
@@ -63,25 +65,26 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             id="nav-upload-btn"
             onClick={onOpenUpload}
-            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 shadow-[0_0_16px_rgba(245,158,11,0.35)] transition-all transform active:scale-95"
+            className="inline-flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 shadow-[0_0_16px_rgba(245,158,11,0.35)] transition-all transform active:scale-95 shrink-0"
+            title="Új szent kép feltöltése"
           >
-            <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+            <PlusCircle className="w-4 h-4 stroke-[2.5] shrink-0" />
             <span className="hidden sm:inline">Kép feltöltése</span>
-            <span className="sm:hidden">Feltöltés</span>
+            <span className="hidden xs:inline sm:hidden">Feltöltés</span>
           </button>
 
           {/* User Auth Section */}
           {currentUser ? (
-            <div className="relative flex items-center gap-2 pl-2 border-l border-neutral-800">
+            <div className="relative flex items-center gap-1.5 sm:gap-2 pl-1.5 sm:pl-2 border-l border-neutral-800 shrink-0">
               {/* User Dropdown Trigger */}
               <button
                 id="user-profile-menu-btn"
                 type="button"
                 onClick={() => setDropdownOpen((prev) => !prev)}
-                className="flex items-center gap-2 p-1 rounded-xl hover:bg-neutral-900 border border-transparent hover:border-neutral-800 transition-all text-left"
+                className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-xl hover:bg-neutral-900 border border-transparent hover:border-neutral-800 transition-all text-left"
               >
                 {/* User Avatar with Glory Halo */}
-                <div className="relative">
+                <div className="relative shrink-0">
                   <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden border-2 border-amber-400/80 shadow-[0_0_10px_rgba(251,191,36,0.5)]">
                     <img
                       src={
@@ -106,7 +109,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 </div>
 
-                <ChevronDown className="w-3.5 h-3.5 text-neutral-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
               </button>
 
               {/* Dropdown Menu */}
@@ -118,7 +121,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   />
                   <div
                     id="user-profile-dropdown"
-                    className="absolute right-0 top-12 z-40 w-56 rounded-2xl bg-neutral-900 border border-amber-500/30 p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] animate-fade-in text-xs space-y-1"
+                    className="absolute right-0 top-12 z-40 w-52 sm:w-56 max-w-[calc(100vw-20px)] rounded-2xl bg-neutral-900 border border-amber-500/30 p-2 shadow-[0_10px_30px_rgba(0,0,0,0.8)] animate-fade-in text-xs space-y-1"
                   >
                     {/* Header info in menu */}
                     <div className="px-3 py-2 border-b border-neutral-800 mb-1">
@@ -196,20 +199,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 id="login-modal-open-btn"
                 onClick={() => onOpenAuth("login")}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium text-neutral-200 hover:text-white hover:bg-neutral-900 border border-neutral-800 transition-colors"
+                className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-medium text-neutral-200 hover:text-white hover:bg-neutral-900 border border-neutral-800 transition-colors shrink-0"
               >
-                <LogIn className="w-4 h-4 text-amber-400" />
+                <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
                 <span>Belépés</span>
               </button>
 
               <button
                 id="register-modal-open-btn"
                 onClick={() => onOpenAuth("register")}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-neutral-900 text-amber-300 border border-amber-500/40 hover:bg-neutral-800 transition-colors"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-neutral-900 text-amber-300 border border-amber-500/40 hover:bg-neutral-800 transition-colors shrink-0"
               >
                 <Sparkles className="w-4 h-4 text-amber-400" />
                 <span>Regisztráció</span>

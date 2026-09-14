@@ -63,19 +63,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/80 backdrop-blur-md">
-      <div className="relative w-full max-w-md bg-neutral-900 border border-amber-500/30 rounded-2xl shadow-[0_0_50px_rgba(245,158,11,0.25)] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-neutral-950/80 backdrop-blur-md overflow-y-auto">
+      <div className="relative w-full max-w-md bg-neutral-900 border border-amber-500/30 rounded-2xl shadow-[0_0_50px_rgba(245,158,11,0.25)] overflow-hidden my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950/60">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-neutral-800 bg-neutral-950/60">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            <h3 className="font-cinzel text-lg font-bold text-neutral-100">
+            <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 shrink-0" />
+            <h3 className="font-cinzel text-base sm:text-lg font-bold text-neutral-100 truncate">
               {tab === "register" ? "Csatlakozás a Szent Rendhez" : "Belépés a HolyFans-re"}
             </h3>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+            className="p-1 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -89,7 +89,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               setTab("login");
               setErrorMessage(null);
             }}
-            className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition-colors border-b-2 ${
+            className={`flex-1 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors border-b-2 ${
               tab === "login"
                 ? "border-amber-400 text-amber-300 bg-amber-500/5"
                 : "border-transparent text-neutral-400 hover:text-neutral-200"
@@ -105,7 +105,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               setTab("register");
               setErrorMessage(null);
             }}
-            className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition-colors border-b-2 ${
+            className={`flex-1 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 sm:gap-2 transition-colors border-b-2 ${
               tab === "register"
                 ? "border-amber-400 text-amber-300 bg-amber-500/5"
                 : "border-transparent text-neutral-400 hover:text-neutral-200"
@@ -117,7 +117,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3.5 sm:space-y-4">
           {tab === "register" && (
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-amber-300/90 mb-1.5">

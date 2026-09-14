@@ -17,10 +17,33 @@
       "displayName": "Test Elek",
       "haloBadge": "Kerub Fényhozó",
       "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Test%20Elek",
-      "createdAt": "2026-09-14T11:32:57.439Z"
+      "createdAt": "2026-09-14T11:32:57.439Z",
+      "role": "user"
+    },
+    {
+      "id": "user-1789392449738-plu8a",
+      "email": "newbie@test.com",
+      "password": "password123",
+      "displayName": "Új Hívő",
+      "haloBadge": "Kerub Fényhozó",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=%C3%9Aj%20H%C3%ADv%C5%91",
+      "createdAt": "2026-09-14T13:27:29.738Z"
     }
   ],
   "posts": [
+    {
+      "id": "post-1789389796624-igp3",
+      "title": "gd",
+      "subtitle": "gd",
+      "imageUrl": "data:image/webp;base64,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",
+      "authorId": "guest-user",
+      "authorName": "Dicső Látogató",
+      "authorEmail": "latogato@holyfans.com",
+      "authorHalo": "Kezdő Kereső",
+      "authorAvatar": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Dics%C5%91%20L%C3%A1togat%C3%B3",
+      "createdAt": "2026-09-14T12:43:16.624Z",
+      "blessings": 1
+    },
     {
       "id": "holy-seed-1",
       "title": "Mennyei Fény és Béke",

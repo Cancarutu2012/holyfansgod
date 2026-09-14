@@ -75,14 +75,14 @@ export const MyPostsModal: React.FC<MyPostsModalProps> = ({
   return (
     <div
       id="my-posts-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm animate-fade-in overflow-y-auto w-full max-w-full"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         id="my-posts-modal"
-        className="relative w-full max-w-2xl rounded-3xl bg-neutral-900 border border-amber-500/30 p-6 sm:p-8 shadow-[0_0_50px_rgba(245,158,11,0.2)] my-8 flex flex-col max-h-[90vh]"
+        className="relative w-full max-w-2xl rounded-2xl sm:rounded-3xl bg-neutral-900 border border-amber-500/30 p-4 sm:p-8 shadow-[0_0_50px_rgba(245,158,11,0.2)] my-auto sm:my-8 flex flex-col max-h-[90vh]"
       >
         {/* Close Button */}
         <button
