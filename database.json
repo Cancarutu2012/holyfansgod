@@ -9,8 +9,56 @@
       "haloBadge": "Arkangyal Adminisztrátor",
       "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
       "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "user-1789385577439-qs8sb",
+      "email": "test@test.com",
+      "password": "password123",
+      "displayName": "Test Elek",
+      "haloBadge": "Kerub Fényhozó",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Test%20Elek",
+      "createdAt": "2026-09-14T11:32:57.439Z"
     }
   ],
-  "posts": []
+  "posts": [
+    {
+      "id": "holy-seed-1",
+      "title": "Mennyei Fény és Béke",
+      "subtitle": "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
+      "imageUrl": "/pics/celestial-light.svg",
+      "authorId": "admin-holy-1",
+      "authorName": "Főpap Admin",
+      "authorEmail": "admin@holyfans.com",
+      "authorHalo": "Arkangyal Adminisztrátor",
+      "authorAvatar": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+      "createdAt": "2026-09-14T10:00:00.000Z",
+      "blessings": 42
+    },
+    {
+      "id": "holy-seed-2",
+      "title": "Katedrális Arany Dicsősége",
+      "subtitle": "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
+      "imageUrl": "/pics/cathedral-glory.svg",
+      "authorId": "user-1789385577439-qs8sb",
+      "authorName": "Test Elek",
+      "authorEmail": "test@test.com",
+      "authorHalo": "Kerub Fényhozó",
+      "authorAvatar": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Test%20Elek",
+      "createdAt": "2026-09-14T10:30:00.000Z",
+      "blessings": 28
+    },
+    {
+      "id": "holy-seed-3",
+      "title": "Angyali Szárnyak Védelme",
+      "subtitle": "Égi oltalmazók kísérnek minden lépésnél, megóvva a digitális világ viharaiban.",
+      "imageUrl": "/pics/angelic-wings.svg",
+      "authorId": "admin-holy-1",
+      "authorName": "Főpap Admin",
+      "authorEmail": "admin@holyfans.com",
+      "authorHalo": "Arkangyal Adminisztrátor",
+      "authorAvatar": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+      "createdAt": "2026-09-14T11:00:00.000Z",
+      "blessings": 35
+    }
+  ]
 }
-

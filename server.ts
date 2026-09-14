@@ -77,7 +77,47 @@ function readDb(): DatabaseSchema {
             createdAt: "2026-01-01T00:00:00.000Z",
           },
         ],
-        posts: [],
+        posts: [
+          {
+            id: "holy-seed-1",
+            title: "Mennyei Fény és Béke",
+            subtitle: "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
+            imageUrl: "/pics/celestial-light.svg",
+            authorId: "admin-holy-1",
+            authorName: "Főpap Admin",
+            authorEmail: "admin@holyfans.com",
+            authorHalo: "Arkangyal Adminisztrátor",
+            authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+            createdAt: "2026-09-14T10:00:00.000Z",
+            blessings: 42,
+          },
+          {
+            id: "holy-seed-2",
+            title: "Katedrális Arany Dicsősége",
+            subtitle: "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
+            imageUrl: "/pics/cathedral-glory.svg",
+            authorId: "admin-holy-1",
+            authorName: "Főpap Admin",
+            authorEmail: "admin@holyfans.com",
+            authorHalo: "Arkangyal Adminisztrátor",
+            authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+            createdAt: "2026-09-14T10:30:00.000Z",
+            blessings: 28,
+          },
+          {
+            id: "holy-seed-3",
+            title: "Angyali Szárnyak Védelme",
+            subtitle: "Égi oltalmazók kísérnek minden lépésnél, megóvva a digitális világ viharaiban.",
+            imageUrl: "/pics/angelic-wings.svg",
+            authorId: "admin-holy-1",
+            authorName: "Főpap Admin",
+            authorEmail: "admin@holyfans.com",
+            authorHalo: "Arkangyal Adminisztrátor",
+            authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+            createdAt: "2026-09-14T11:00:00.000Z",
+            blessings: 35,
+          },
+        ],
       };
       try {
         fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
@@ -88,6 +128,39 @@ function readDb(): DatabaseSchema {
     const data = JSON.parse(content);
     if (!Array.isArray(data.users)) data.users = [];
     if (!Array.isArray(data.posts)) data.posts = [];
+
+    // Ensure seed posts exist if posts array is completely empty
+    if (data.posts.length === 0) {
+      data.posts = [
+        {
+          id: "holy-seed-1",
+          title: "Mennyei Fény és Béke",
+          subtitle: "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
+          imageUrl: "/pics/celestial-light.svg",
+          authorId: "admin-holy-1",
+          authorName: "Főpap Admin",
+          authorEmail: "admin@holyfans.com",
+          authorHalo: "Arkangyal Adminisztrátor",
+          authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+          createdAt: "2026-09-14T10:00:00.000Z",
+          blessings: 42,
+        },
+        {
+          id: "holy-seed-2",
+          title: "Katedrális Arany Dicsősége",
+          subtitle: "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
+          imageUrl: "/pics/cathedral-glory.svg",
+          authorId: "admin-holy-1",
+          authorName: "Főpap Admin",
+          authorEmail: "admin@holyfans.com",
+          authorHalo: "Arkangyal Adminisztrátor",
+          authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+          createdAt: "2026-09-14T10:30:00.000Z",
+          blessings: 28,
+        },
+      ];
+      writeDb(data);
+    }
 
     // Ensure admin is present
     const hasAdmin = data.users.some(
@@ -619,6 +692,95 @@ app.put("/api/admin/users/:id/role", (req: Request, res: Response) => {
 });
 
 
+// Admin: Get all posts
+app.get("/api/admin/posts", (req: Request, res: Response) => {
+  const db = readDb();
+  const user = getAuthUser(req, db);
+
+  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+    res.status(403).json({ success: false, message: "Csak Adminisztrátor férhet hozzá!" });
+    return;
+  }
+
+  const sortedPosts = [...db.posts].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
+  res.json({
+    success: true,
+    posts: sortedPosts,
+  });
+});
+
+// Sync any local data from previous sessions into the central database.json
+app.post("/api/sync-local", (req: Request, res: Response) => {
+  try {
+    const { users, posts } = req.body;
+    const db = readDb();
+    let usersAdded = 0;
+    let postsAdded = 0;
+
+    if (Array.isArray(users)) {
+      for (const u of users) {
+        if (!u.email || u.email.toLowerCase() === "admin@holyfans.com") continue;
+        const exists = db.users.some(
+          (existing) => existing.email.toLowerCase() === u.email.toLowerCase() || existing.id === u.id
+        );
+        if (!exists) {
+          db.users.push({
+            id: u.id || `user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            email: u.email.toLowerCase(),
+            password: u.password || "password",
+            displayName: u.displayName || "Szent Hívő",
+            role: u.role || "user",
+            haloBadge: u.haloBadge || "Arany Dicsfény",
+            avatarUrl: u.avatarUrl || `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(u.displayName || "User")}`,
+            createdAt: u.createdAt || new Date().toISOString(),
+          });
+          usersAdded++;
+        }
+      }
+    }
+
+    if (Array.isArray(posts)) {
+      for (const p of posts) {
+        if (!p.id || !p.title) continue;
+        const exists = db.posts.some((existing) => existing.id === p.id);
+        if (!exists) {
+          db.posts.push({
+            id: p.id,
+            title: p.title,
+            subtitle: p.subtitle || "",
+            imageUrl: p.imageUrl || "/pics/celestial-light.svg",
+            authorId: p.authorId || "guest-user",
+            authorName: p.authorName || "Hívő",
+            authorEmail: p.authorEmail || "hivo@holyfans.com",
+            authorHalo: p.authorHalo || "Dicsfény",
+            authorAvatar: p.authorAvatar || `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(p.authorName || "Post")}`,
+            createdAt: p.createdAt || new Date().toISOString(),
+            blessings: p.blessings || 1,
+          });
+          postsAdded++;
+        }
+      }
+    }
+
+    if (usersAdded > 0 || postsAdded > 0) {
+      writeDb(db);
+    }
+
+    res.json({
+      success: true,
+      message: `Szinkronizáció kész (${usersAdded} új felhasználó, ${postsAdded} új bejegyzés a közös adatbázisban).`,
+      usersAdded,
+      postsAdded,
+    });
+  } catch (err: any) {
+    console.error("Error during sync-local:", err);
+    res.status(500).json({ success: false, message: "Szinkronizációs hiba." });
+  }
+});
+
 // Community Statistics
 app.get("/api/stats", (req: Request, res: Response) => {
   const db = readDb();
@@ -652,6 +814,15 @@ app.get("/api/database-inspect", (req: Request, res: Response) => {
     success: true,
     database: db,
     picsFiles,
+  });
+});
+
+// Express JSON error handling middleware
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error("Express Error Handler:", err);
+  res.status(err.status || 400).json({
+    success: false,
+    message: err.message || "Hiba történt a szerver oldalon.",
   });
 });
 

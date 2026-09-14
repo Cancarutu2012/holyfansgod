@@ -99,7 +99,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchPostsAndStats();
+    const initApp = async () => {
+      await api.syncLocalDataToServer();
+      await fetchPostsAndStats();
+    };
+    initApp();
   }, []);
 
   // Handle Bless
