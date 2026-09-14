@@ -77,7 +77,7 @@ export default function App() {
   }, []);
 
   // Fetch posts and stats
-  const fetchPostsAndStats = async () => {
+  const fetchPostsAndStats = async (): Promise<Post[] | null> => {
     setLoading(true);
     try {
       const [postsData, statsData] = await Promise.all([
@@ -85,25 +85,93 @@ export default function App() {
         api.getStats(),
       ]);
 
+      let loaded: Post[] = [];
       if (postsData.success && Array.isArray(postsData.posts)) {
         setPosts(postsData.posts);
+        loaded = postsData.posts;
       }
       if (statsData.success && statsData.stats) {
         setStats(statsData.stats);
       }
+      return loaded;
     } catch (err) {
       console.error("Failed to load feed", err);
+      return null;
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle deep link / share link (?post=id or #post-id)
+  const handleDeepLinkPost = async (loadedPosts: Post[]) => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      let targetId = urlParams.get("post");
+      if (!targetId && window.location.hash) {
+        const hash = window.location.hash.replace(/^#(post-)?/, "");
+        if (hash) targetId = hash;
+      }
+
+      if (!targetId) return;
+
+      let found = loadedPosts.find((p) => p.id === targetId);
+
+      // If not present in current list, fetch directly from central database
+      if (!found) {
+        const singleRes = await api.getPostById(targetId);
+        if (singleRes.success && singleRes.post) {
+          found = singleRes.post;
+          setPosts((prev) => [singleRes.post!, ...prev.filter((p) => p.id !== singleRes.post!.id)]);
+        }
+      }
+
+      if (found) {
+        setLightboxPost(found);
+        showToast(`Szent megosztás megnyitva: ${found.title} ✨`);
+        setTimeout(() => {
+          const el = document.getElementById(`post-${found!.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-2", "ring-amber-400", "shadow-[0_0_50px_rgba(245,158,11,0.5)]");
+            setTimeout(() => {
+              el.classList.remove("ring-2", "ring-amber-400", "shadow-[0_0_50px_rgba(245,158,11,0.5)]");
+            }, 4000);
+          }
+        }, 400);
+      }
+    } catch (err) {
+      console.warn("Deep link processing caught error:", err);
     }
   };
 
   useEffect(() => {
     const initApp = async () => {
       await api.syncLocalDataToServer();
-      await fetchPostsAndStats();
+      const loaded = await fetchPostsAndStats();
+      if (loaded) {
+        await handleDeepLinkPost(loaded);
+      }
     };
     initApp();
+
+    // Also listen to hashchange for in-page navigation
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace(/^#(post-)?/, "");
+      if (hash) {
+        setPosts((currentPosts) => {
+          const found = currentPosts.find((p) => p.id === hash);
+          if (found) {
+            setLightboxPost(found);
+            const el = document.getElementById(`post-${found.id}`);
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+          return currentPosts;
+        });
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   // Handle Bless

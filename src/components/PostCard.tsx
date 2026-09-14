@@ -18,10 +18,41 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onBless, onOpenLightbo
     setTimeout(() => setBlessingAnim(false), 800);
   };
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(`${window.location.origin}#${post.id}`);
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = new URL(window.location.href);
+    url.searchParams.set("post", post.id);
+    url.hash = `post-${post.id}`;
+    const shareUrl = url.toString();
+
+    let shareSuccess = false;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `HolyFans - ${post.title}`,
+          text: post.subtitle || `${post.authorName} szent pillanata a HolyFans-en!`,
+          url: shareUrl,
+        });
+        shareSuccess = true;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      }
+    }
+
+    if (!shareSuccess) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+        } else {
+          throw new Error("Clipboard unavailable");
+        }
+      } catch {
+        window.prompt("Másold ki a szent megosztási linket:", shareUrl);
+      }
+    }
+
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 2500);
   };
 
   // Format date in Hungarian
@@ -152,10 +183,24 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onBless, onOpenLightbo
           <button
             id={`share-btn-${post.id}`}
             onClick={handleShare}
-            className="p-2 rounded-xl text-neutral-400 hover:text-amber-300 hover:bg-neutral-800 transition-colors"
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
+              copied
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                : "text-neutral-400 hover:text-amber-300 hover:bg-neutral-800 border border-transparent hover:border-neutral-700"
+            }`}
             title="Megosztás és link másolása"
           >
-            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
+            {copied ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>Másolva! ✨</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Megosztás</span>
+              </>
+            )}
           </button>
         </div>
       </div>

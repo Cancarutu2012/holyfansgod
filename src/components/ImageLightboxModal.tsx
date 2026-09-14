@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { Post } from "../types";
-import { X, Heart, Sparkles, Crown } from "lucide-react";
+import { X, Heart, Sparkles, Crown, Share2, Check } from "lucide-react";
 
 interface ImageLightboxModalProps {
   post: Post | null;
@@ -13,7 +13,45 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
   onClose,
   onBless,
 }) => {
+  const [copied, setCopied] = useState(false);
+
   if (!post) return null;
+
+  const handleShare = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("post", post.id);
+    url.hash = `post-${post.id}`;
+    const shareUrl = url.toString();
+
+    let shared = false;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `HolyFans - ${post.title}`,
+          text: post.subtitle || `${post.authorName} szent pillanata`,
+          url: shareUrl,
+        });
+        shared = true;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      }
+    }
+
+    if (!shared) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+        } else {
+          throw new Error();
+        }
+      } catch {
+        window.prompt("Másold ki a szent megosztási linket:", shareUrl);
+      }
+    }
+
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/90 backdrop-blur-lg">
@@ -71,16 +109,39 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
             )}
           </div>
 
-          <button
-            onClick={() => onBless(post.id)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/30 transition-all shrink-0"
-          >
-            <Heart className="w-4 h-4 fill-current text-amber-400" />
-            <span>Áldás osztása</span>
-            <span className="px-1.5 py-0.5 rounded bg-neutral-950 text-xs font-bold text-amber-400">
-              {post.blessings || 0}
-            </span>
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={handleShare}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${
+                copied
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  : "bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-300 border border-neutral-700 hover:border-amber-500/40"
+              }`}
+            >
+              {copied ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>Link másolva! ✨</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-4 h-4" />
+                  <span>Megosztás</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => onBless(post.id)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/30 transition-all"
+            >
+              <Heart className="w-4 h-4 fill-current text-amber-400" />
+              <span>Áldás osztása</span>
+              <span className="px-1.5 py-0.5 rounded bg-neutral-950 text-xs font-bold text-amber-400">
+                {post.blessings || 0}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

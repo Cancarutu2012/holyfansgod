@@ -1,12 +1,58 @@
 import { User, Post } from "../types";
 
+// Fallback seed posts in case of temporary network latency or cold-start
+const FALLBACK_SEED_POSTS: Post[] = [
+  {
+    id: "holy-seed-1",
+    title: "Mennyei Fény és Béke",
+    subtitle: "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
+    imageUrl: "/pics/celestial-light.svg",
+    authorId: "admin-holy-1",
+    authorName: "Főpap Admin",
+    authorEmail: "admin@holyfans.com",
+    authorHalo: "Arkangyal Adminisztrátor",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+    createdAt: "2026-09-14T10:00:00.000Z",
+    blessings: 42,
+  },
+  {
+    id: "holy-seed-2",
+    title: "Katedrális Arany Dicsősége",
+    subtitle: "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
+    imageUrl: "/pics/cathedral-glory.svg",
+    authorId: "user-1789385577439-qs8sb",
+    authorName: "Test Elek",
+    authorEmail: "test@test.com",
+    authorHalo: "Kerub Fényhozó",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Test%20Elek",
+    createdAt: "2026-09-14T10:30:00.000Z",
+    blessings: 28,
+  },
+  {
+    id: "holy-seed-3",
+    title: "Angyali Szárnyak Védelme",
+    subtitle: "Égi oltalmazók kísérnek minden lépésnél, megóvva a digitális világ viharaiban.",
+    imageUrl: "/pics/angelic-wings.svg",
+    authorId: "admin-holy-1",
+    authorName: "Főpap Admin",
+    authorEmail: "admin@holyfans.com",
+    authorHalo: "Arkangyal Adminisztrátor",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+    createdAt: "2026-09-14T11:00:00.000Z",
+    blessings: 35,
+  },
+];
+
 // Helper to safely parse JSON response with detailed error message
 async function parseResponseSafe(res: Response): Promise<{ isJson: boolean; data: any; status: number }> {
   const status = res.status;
   const contentType = res.headers.get("content-type") || "";
 
   if (!contentType.includes("application/json")) {
-    const text = await res.text().catch(() => "");
+    let text = await res.text().catch(() => "");
+    if (text.includes("FUNCTION_INVOCATION_FAILED") || text.includes("FUNCTION_INVOCATION_TIMEOUT")) {
+      text = "A szerver éppen ébredezik a felhőben, kérlek próbáld újra egy pillanat múlva!";
+    }
     return {
       isJson: false,
       data: { success: false, message: text || `Hiba: HTTP ${status}` },
@@ -84,14 +130,43 @@ export const api = {
       });
       const { isJson, data } = await parseResponseSafe(res);
 
-      if (isJson && data?.success && Array.isArray(data.posts)) {
+      if (isJson && data?.success && Array.isArray(data.posts) && data.posts.length > 0) {
         return { success: true, posts: data.posts };
       }
 
-      return { success: false, posts: [] };
+      if (isJson && data?.success && Array.isArray(data.posts)) {
+        return { success: true, posts: data.posts.length > 0 ? data.posts : FALLBACK_SEED_POSTS };
+      }
+
+      // Fallback to seed posts if server is waking up
+      return { success: true, posts: FALLBACK_SEED_POSTS };
     } catch (err) {
       console.error("api.getPosts error:", err);
-      return { success: false, posts: [] };
+      return { success: true, posts: FALLBACK_SEED_POSTS };
+    }
+  },
+
+  // Single post by ID for direct share links
+  async getPostById(postId: string): Promise<{ success: boolean; post?: Post; message?: string }> {
+    try {
+      const res = await fetch(`/api/posts/${postId}`, {
+        headers: { "Cache-Control": "no-cache" },
+      });
+      const { isJson, data } = await parseResponseSafe(res);
+      if (isJson && data?.success && data.post) {
+        return { success: true, post: data.post };
+      }
+      const fallback = FALLBACK_SEED_POSTS.find((p) => p.id === postId);
+      if (fallback) {
+        return { success: true, post: fallback };
+      }
+      return { success: false, message: data?.message || "A bejegyzés nem található." };
+    } catch (err: any) {
+      const fallback = FALLBACK_SEED_POSTS.find((p) => p.id === postId);
+      if (fallback) {
+        return { success: true, post: fallback };
+      }
+      return { success: false, message: err.message };
     }
   },
 

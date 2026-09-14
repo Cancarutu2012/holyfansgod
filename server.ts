@@ -1,8 +1,8 @@
-import express, { Request, Response } from "express";
+import express from "express";
+import type { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { createServer as createViteServer } from "vite";
 
 const app = express();
 const PORT = 3000;
@@ -48,156 +48,148 @@ interface DatabaseSchema {
   }>;
 }
 
+// In-memory database cache to guarantee data availability across serverless invocations
+let memoryDb: DatabaseSchema | null = null;
+
+const DEFAULT_USERS = [
+  {
+    id: "admin-holy-1",
+    email: "admin@holyfans.com",
+    password: "admin",
+    displayName: "Főpap Admin",
+    role: "admin" as const,
+    haloBadge: "Arkangyal Adminisztrátor",
+    avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "user-1789385577439-qs8sb",
+    email: "test@test.com",
+    password: "password123",
+    displayName: "Test Elek",
+    haloBadge: "Kerub Fényhozó",
+    avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Test%20Elek",
+    createdAt: "2026-09-14T11:32:57.439Z",
+  },
+];
+
+const DEFAULT_POSTS = [
+  {
+    id: "holy-seed-1",
+    title: "Mennyei Fény és Béke",
+    subtitle: "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
+    imageUrl: "/pics/celestial-light.svg",
+    authorId: "admin-holy-1",
+    authorName: "Főpap Admin",
+    authorEmail: "admin@holyfans.com",
+    authorHalo: "Arkangyal Adminisztrátor",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+    createdAt: "2026-09-14T10:00:00.000Z",
+    blessings: 42,
+  },
+  {
+    id: "holy-seed-2",
+    title: "Katedrális Arany Dicsősége",
+    subtitle: "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
+    imageUrl: "/pics/cathedral-glory.svg",
+    authorId: "user-1789385577439-qs8sb",
+    authorName: "Test Elek",
+    authorEmail: "test@test.com",
+    authorHalo: "Kerub Fényhozó",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Test%20Elek",
+    createdAt: "2026-09-14T10:30:00.000Z",
+    blessings: 28,
+  },
+  {
+    id: "holy-seed-3",
+    title: "Angyali Szárnyak Védelme",
+    subtitle: "Égi oltalmazók kísérnek minden lépésnél, megóvva a digitális világ viharaiban.",
+    imageUrl: "/pics/angelic-wings.svg",
+    authorId: "admin-holy-1",
+    authorName: "Főpap Admin",
+    authorEmail: "admin@holyfans.com",
+    authorHalo: "Arkangyal Adminisztrátor",
+    authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+    createdAt: "2026-09-14T11:00:00.000Z",
+    blessings: 35,
+  },
+];
+
 function readDb(): DatabaseSchema {
   try {
-    if (!fs.existsSync(DB_FILE)) {
-      // If running on Vercel, check if there's a starter database.json in process.cwd()
+    let rawContent: string | null = null;
+    if (fs.existsSync(DB_FILE)) {
+      rawContent = fs.readFileSync(DB_FILE, "utf-8");
+    } else {
       const rootDbFile = path.join(process.cwd(), "database.json");
-      if (IS_VERCEL && fs.existsSync(rootDbFile)) {
+      if (fs.existsSync(rootDbFile)) {
+        rawContent = fs.readFileSync(rootDbFile, "utf-8");
         try {
-          const content = fs.readFileSync(rootDbFile, "utf-8");
-          const parsed = JSON.parse(content);
-          fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), "utf-8");
-          return parsed;
-        } catch {
-          // fallback to empty
+          fs.writeFileSync(DB_FILE, rawContent, "utf-8");
+        } catch {}
+      }
+    }
+
+    if (rawContent) {
+      const parsed = JSON.parse(rawContent);
+      if (Array.isArray(parsed.users) && Array.isArray(parsed.posts)) {
+        if (!memoryDb || parsed.posts.length >= memoryDb.posts.length) {
+          memoryDb = parsed;
         }
       }
-
-      const initial: DatabaseSchema = {
-        users: [
-          {
-            id: "admin-holy-1",
-            email: "admin@holyfans.com",
-            password: "admin",
-            displayName: "Főpap Admin",
-            role: "admin",
-            haloBadge: "Arkangyal Adminisztrátor",
-            avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-            createdAt: "2026-01-01T00:00:00.000Z",
-          },
-        ],
-        posts: [
-          {
-            id: "holy-seed-1",
-            title: "Mennyei Fény és Béke",
-            subtitle: "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
-            imageUrl: "/pics/celestial-light.svg",
-            authorId: "admin-holy-1",
-            authorName: "Főpap Admin",
-            authorEmail: "admin@holyfans.com",
-            authorHalo: "Arkangyal Adminisztrátor",
-            authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-            createdAt: "2026-09-14T10:00:00.000Z",
-            blessings: 42,
-          },
-          {
-            id: "holy-seed-2",
-            title: "Katedrális Arany Dicsősége",
-            subtitle: "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
-            imageUrl: "/pics/cathedral-glory.svg",
-            authorId: "admin-holy-1",
-            authorName: "Főpap Admin",
-            authorEmail: "admin@holyfans.com",
-            authorHalo: "Arkangyal Adminisztrátor",
-            authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-            createdAt: "2026-09-14T10:30:00.000Z",
-            blessings: 28,
-          },
-          {
-            id: "holy-seed-3",
-            title: "Angyali Szárnyak Védelme",
-            subtitle: "Égi oltalmazók kísérnek minden lépésnél, megóvva a digitális világ viharaiban.",
-            imageUrl: "/pics/angelic-wings.svg",
-            authorId: "admin-holy-1",
-            authorName: "Főpap Admin",
-            authorEmail: "admin@holyfans.com",
-            authorHalo: "Arkangyal Adminisztrátor",
-            authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-            createdAt: "2026-09-14T11:00:00.000Z",
-            blessings: 35,
-          },
-        ],
-      };
-      try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
-      } catch {}
-      return initial;
     }
-    const content = fs.readFileSync(DB_FILE, "utf-8");
-    const data = JSON.parse(content);
-    if (!Array.isArray(data.users)) data.users = [];
-    if (!Array.isArray(data.posts)) data.posts = [];
-
-    // Ensure seed posts exist if posts array is completely empty
-    if (data.posts.length === 0) {
-      data.posts = [
-        {
-          id: "holy-seed-1",
-          title: "Mennyei Fény és Béke",
-          subtitle: "A dicsőség sugara átragyog a sötétségen és békességet hoz a lelkeknek.",
-          imageUrl: "/pics/celestial-light.svg",
-          authorId: "admin-holy-1",
-          authorName: "Főpap Admin",
-          authorEmail: "admin@holyfans.com",
-          authorHalo: "Arkangyal Adminisztrátor",
-          authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-          createdAt: "2026-09-14T10:00:00.000Z",
-          blessings: 42,
-        },
-        {
-          id: "holy-seed-2",
-          title: "Katedrális Arany Dicsősége",
-          subtitle: "Fenséges boltozatok, melyek a magasságos fényét tükrözik vissza a hívők felé.",
-          imageUrl: "/pics/cathedral-glory.svg",
-          authorId: "admin-holy-1",
-          authorName: "Főpap Admin",
-          authorEmail: "admin@holyfans.com",
-          authorHalo: "Arkangyal Adminisztrátor",
-          authorAvatar: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-          createdAt: "2026-09-14T10:30:00.000Z",
-          blessings: 28,
-        },
-      ];
-      writeDb(data);
-    }
-
-    // Ensure admin is present
-    const hasAdmin = data.users.some(
-      (u: any) => u.email && u.email.toLowerCase() === "admin@holyfans.com"
-    );
-    if (!hasAdmin) {
-      data.users.unshift({
-        id: "admin-holy-1",
-        email: "admin@holyfans.com",
-        password: "admin",
-        displayName: "Főpap Admin",
-        role: "admin",
-        haloBadge: "Arkangyal Adminisztrátor",
-        avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      });
-      writeDb(data);
-    }
-
-    return data;
   } catch (err) {
-    console.error("Error reading database.json:", err);
-    return { users: [], posts: [] };
+    console.warn("Could not read DB_FILE, utilizing memory/seed database:", err);
   }
+
+  if (!memoryDb) {
+    memoryDb = {
+      users: [...DEFAULT_USERS],
+      posts: [...DEFAULT_POSTS],
+    };
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(memoryDb, null, 2), "utf-8");
+    } catch {}
+  }
+
+  // Ensure default seed posts exist if posts is empty
+  if (!memoryDb.posts || memoryDb.posts.length === 0) {
+    memoryDb.posts = [...DEFAULT_POSTS];
+  }
+
+  // Ensure admin is always present
+  if (!memoryDb.users.some((u) => u.email && u.email.toLowerCase() === "admin@holyfans.com")) {
+    memoryDb.users.unshift(DEFAULT_USERS[0]);
+  }
+
+  return memoryDb;
 }
 
 function writeDb(data: DatabaseSchema): void {
+  memoryDb = data;
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
-    console.error("Error writing database.json:", err);
+    console.warn("Could not write DB_FILE (in-memory state maintained):", err);
   }
+
+  // Also sync to root database.json if not on Vercel
+  try {
+    const rootDbFile = path.join(process.cwd(), "database.json");
+    if (!IS_VERCEL && rootDbFile !== DB_FILE) {
+      fs.writeFileSync(rootDbFile, JSON.stringify(data, null, 2), "utf-8");
+    }
+  } catch {}
 }
 
-// Configure multer for disk storage in the 'pics' folder
+// Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    if (!fs.existsSync(PICS_DIR)) {
+      try {
+        fs.mkdirSync(PICS_DIR, { recursive: true });
+      } catch {}
+    }
     cb(null, PICS_DIR);
   },
   filename: (req, file, cb) => {
@@ -222,9 +214,63 @@ const upload = multer({
   },
 });
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Middleware for parsing JSON and form bodies
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+// Standard CORS middleware
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
+// Route normalization middleware for Vercel Serverless Function rewrites
+app.use((req, res, next) => {
+  // If request URL was stripped of /api by Vercel rewrite (e.g. /register or /posts), normalize it back to /api/*
+  if (!req.url.startsWith("/api") && !req.url.startsWith("/pics")) {
+    const queryIdx = req.url.indexOf("?");
+    const pathPart = queryIdx >= 0 ? req.url.slice(0, queryIdx) : req.url;
+    const queryPart = queryIdx >= 0 ? req.url.slice(queryIdx) : "";
+    req.url = `/api${pathPart.startsWith("/") ? "" : "/"}${pathPart}${queryPart}`;
+  }
+  next();
+});
+
+// Direct route to serve pics, checking /tmp/pics, public/pics, and root pics
+app.get("/pics/:filename", (req: Request, res: Response) => {
+  const filename = path.basename(req.params.filename);
+  const possiblePaths = [
+    path.join(PICS_DIR, filename),
+    path.join(process.cwd(), "public", "pics", filename),
+    path.join(process.cwd(), "pics", filename),
+    path.join(process.cwd(), "dist", "pics", filename),
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      if (filename.endsWith(".svg")) {
+        res.setHeader("Content-Type", "image/svg+xml");
+      } else if (filename.endsWith(".png")) {
+        res.setHeader("Content-Type", "image/png");
+      } else if (filename.endsWith(".webp")) {
+        res.setHeader("Content-Type", "image/webp");
+      } else if (filename.endsWith(".gif")) {
+        res.setHeader("Content-Type", "image/gif");
+      } else {
+        res.setHeader("Content-Type", "image/jpeg");
+      }
+      return res.sendFile(p);
+    }
+  }
+
+  res.status(404).send("Szent kép nem található.");
+});
 
 // Serve pics folder statically as /pics
 app.use("/pics", express.static(PICS_DIR));
@@ -235,7 +281,7 @@ app.use("/pics", express.static(PICS_DIR));
 
 // Health check
 app.get("/api/health", (req: Request, res: Response) => {
-  res.json({ status: "ok", service: "HolyFans API" });
+  res.json({ status: "ok", service: "HolyFans API", version: "2.0.0" });
 });
 
 // Authentication: Register
@@ -468,6 +514,18 @@ app.get("/api/posts", (req: Request, res: Response) => {
   res.json({ success: true, posts: sortedPosts });
 });
 
+// Single Post: Get post by ID (for direct share links)
+app.get("/api/posts/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const db = readDb();
+  const post = db.posts.find((p) => p.id === id);
+  if (!post) {
+    res.status(404).json({ success: false, message: "A megosztott bejegyzés nem található." });
+    return;
+  }
+  res.json({ success: true, post });
+});
+
 // Upload: Create new post with image in pics folder
 app.post("/api/posts", upload.single("image"), (req: Request, res: Response) => {
   if (!req.file) {
@@ -487,11 +545,24 @@ app.post("/api/posts", upload.single("image"), (req: Request, res: Response) => 
   // Find author or fallback
   let author = db.users.find((u) => u.id === authorId || u.email === authorEmail);
 
+  // Determine image URL - on serverless or ephemeral filesystems, store as data URL so it never 404s
+  let finalImageUrl = `/pics/${req.file.filename}`;
+  try {
+    if (req.file.path && fs.existsSync(req.file.path)) {
+      const fileBuf = fs.readFileSync(req.file.path);
+      if (fileBuf && fileBuf.length <= 4 * 1024 * 1024) {
+        finalImageUrl = `data:${req.file.mimetype || "image/jpeg"};base64,${fileBuf.toString("base64")}`;
+      }
+    }
+  } catch (err) {
+    console.warn("Could not encode image buffer, falling back to path:", err);
+  }
+
   const newPost = {
     id: `post-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     title: title.trim(),
     subtitle: (subtitle || "").trim(),
-    imageUrl: `/pics/${req.file.filename}`, // Direct relative path served by Express
+    imageUrl: finalImageUrl,
     authorId: author?.id || authorId || "guest-user",
     authorName: author?.displayName || authorName || "Névtelen Testvér",
     authorEmail: author?.email || authorEmail || "anon@holyfans.com",
@@ -831,6 +902,7 @@ app.use((err: any, req: Request, res: Response, next: any) => {
 // ----------------------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

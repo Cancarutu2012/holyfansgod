@@ -6,7 +6,11 @@
       "destination": "/api"
     },
     {
-      "source": "/((?!api).*)",
+      "source": "/pics/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api|pics).*)",
       "destination": "/index.html"
     }
   ]
