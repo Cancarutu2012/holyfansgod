@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-cinzel {
+  font-family: 'Cinzel', Georgia, serif;
+}
+
+@keyframes haloPulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.35), inset 0 0 10px rgba(251, 191, 36, 0.2);
+    border-color: rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 32px rgba(245, 158, 11, 0.65), inset 0 0 16px rgba(251, 191, 36, 0.35);
+    border-color: rgba(251, 191, 36, 0.7);
+  }
+}
+
+.halo-glow {
+  animation: haloPulse 3.5s infinite ease-in-out;
+}
+
+@keyframes divineShimmer {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: divineShimmer 25s linear infinite;
+}

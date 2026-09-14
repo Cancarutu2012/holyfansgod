@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800">
+  <defs>
+    <radialGradient id="roseWindow" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#fffbeb" />
+      <stop offset="40%" stop-color="#f59e0b" />
+      <stop offset="80%" stop-color="#b45309" />
+      <stop offset="100%" stop-color="#1c1917" />
+    </radialGradient>
+    <filter id="stainedGlassGlow">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#roseWindow)" />
+  <!-- Gothic Arch Silhouette -->
+  <path d="M 300,800 L 300,450 C 300,280 600,100 600,100 C 600,100 900,280 900,450 L 900,800 Z" fill="#0c0a09" opacity="0.88" />
+  
+  <!-- Intricate Stained Glass Rosette -->
+  <g transform="translate(600, 360)" filter="url(#stainedGlassGlow)">
+    <circle cx="0" cy="0" r="130" fill="none" stroke="#fbbf24" stroke-width="4" />
+    <circle cx="0" cy="0" r="85" fill="none" stroke="#fde047" stroke-width="3" />
+    <circle cx="0" cy="0" r="40" fill="#fef08a" stroke="#d97706" stroke-width="2" />
+    
+    <!-- 8 Petal Sacred Rosette Pattern -->
+    <path d="M 0,-130 C 20,-85 20,-40 0,0 C -20,-40 -20,-85 0,-130 Z" fill="#eab308" opacity="0.85" />
+    <path d="M 0,130 C 20,85 20,40 0,0 C -20,40 -20,85 0,130 Z" fill="#eab308" opacity="0.85" />
+    <path d="M -130,0 C -85,20 -40,20 0,0 C -40,-20 -85,-20 -130,0 Z" fill="#eab308" opacity="0.85" />
+    <path d="M 130,0 C 85,20 40,20 0,0 C 40,-20 85,-20 130,0 Z" fill="#eab308" opacity="0.85" />
+    
+    <path d="M -92,-92 C -50,-80 -30,-40 0,0 C -40,-30 -80,-50 -92,-92 Z" fill="#f59e0b" opacity="0.8" />
+    <path d="M 92,92 C 50,80 30,40 0,0 C 40,30 80,50 92,92 Z" fill="#f59e0b" opacity="0.8" />
+    <path d="M -92,92 C -80,50 -40,30 0,0 C -30,40 -50,80 -92,92 Z" fill="#f59e0b" opacity="0.8" />
+    <path d="M 92,-92 C 80,-50 40,-30 0,0 C 30,-40 50,-80 92,-92 Z" fill="#f59e0b" opacity="0.8" />
+
+    <!-- Center golden star -->
+    <polygon points="0,-18 5,-5 18,0 5,5 0,18 -5,5 -18,0 -5,-5" fill="#ffffff" />
+  </g>
+
+  <!-- Light beams entering the nave -->
+  <polygon points="600,360 100,800 250,800" fill="#fef08a" opacity="0.12" />
+  <polygon points="600,360 400,800 580,800" fill="#fef08a" opacity="0.16" />
+  <polygon points="600,360 620,800 800,800" fill="#fef08a" opacity="0.16" />
+  <polygon points="600,360 950,800 1100,800" fill="#fef08a" opacity="0.12" />
+</svg>
