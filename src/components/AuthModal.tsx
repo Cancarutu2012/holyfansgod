@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { User } from "../types";
+import { api } from "../services/apiClient";
 import { X, Sparkles, LogIn, UserPlus, AlertCircle, CheckCircle, ShieldCheck } from "lucide-react";
 
 interface AuthModalProps {
@@ -32,21 +33,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     try {
-      const endpoint = tab === "register" ? "/api/register" : "/api/login";
-      const payload =
-        tab === "register"
-          ? { email, password, displayName }
-          : { email, password };
+      let data;
+      if (tab === "register") {
+        data = await api.register({ email, password, displayName });
+      } else {
+        data = await api.login({ email, password });
+      }
 
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
+      if (!data.success) {
         throw new Error(data.message || "A hitelesítés sikertelen volt.");
       }
 
@@ -57,7 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         localStorage.setItem("holyfans_token", data.token);
         localStorage.setItem("holyfans_user", JSON.stringify(data.user));
         setTimeout(() => {
-          onLoginSuccess(data.user, data.token);
+          onLoginSuccess(data.user!, data.token!);
           onClose();
         }, 800);
       }

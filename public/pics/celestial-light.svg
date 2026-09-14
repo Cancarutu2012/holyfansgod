@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800">
+  <defs>
+    <radialGradient id="sunGlow" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#fff8db" />
+      <stop offset="25%" stop-color="#fbbf24" />
+      <stop offset="60%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </radialGradient>
+    <linearGradient id="rayGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+    </linearGradient>
+    <filter id="divineGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="15" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <!-- Celestial Sky Background -->
+  <rect width="100%" height="100%" fill="url(#sunGlow)" />
+  
+  <!-- Divine Rays radiating from center -->
+  <g opacity="0.45" transform="translate(600, 240)">
+    <polygon points="0,0 -80,600 80,600" fill="url(#rayGrad)" />
+    <polygon points="0,0 -200,600 -120,600" fill="url(#rayGrad)" />
+    <polygon points="0,0 120,600 200,600" fill="url(#rayGrad)" />
+    <polygon points="0,0 -380,600 -300,600" fill="url(#rayGrad)" />
+    <polygon points="0,0 300,600 380,600" fill="url(#rayGrad)" />
+    <polygon points="0,0 -560,550 -480,550" fill="url(#rayGrad)" />
+    <polygon points="0,0 480,550 560,550" fill="url(#rayGrad)" />
+    <polygon points="0,0 -650,400 -600,400" fill="url(#rayGrad)" />
+    <polygon points="0,0 600,400 650,400" fill="url(#rayGrad)" />
+  </g>
+
+  <!-- Glory Halo Rings -->
+  <circle cx="600" cy="240" r="140" fill="none" stroke="#fef08a" stroke-width="3" opacity="0.85" filter="url(#divineGlow)" />
+  <circle cx="600" cy="240" r="190" fill="none" stroke="#fde047" stroke-dasharray="12 8" stroke-width="2.5" opacity="0.6" />
+  <circle cx="600" cy="240" r="250" fill="none" stroke="#fbbf24" stroke-width="1.5" opacity="0.4" />
+
+  <!-- Heavenly Crown / Glory Symbol -->
+  <g transform="translate(600, 240)" filter="url(#divineGlow)">
+    <circle cx="0" cy="0" r="45" fill="#fef08a" opacity="0.9" />
+    <path d="M-60,30 L-40,-40 L0,-10 L40,-40 L60,30 Z" fill="#f59e0b" stroke="#fef08a" stroke-width="3" />
+    <circle cx="-40" cy="-45" r="7" fill="#ffffff" />
+    <circle cx="0" cy="-15" r="9" fill="#ffffff" />
+    <circle cx="40" cy="-45" r="7" fill="#ffffff" />
+  </g>
+
+  <!-- Cloud Silhouettes -->
+  <path d="M0,620 Q180,520 380,600 T780,580 T1200,610 L1200,800 L0,800 Z" fill="#1e1b4b" opacity="0.8" />
+  <path d="M0,680 Q250,600 500,670 T1000,650 T1200,690 L1200,800 L0,800 Z" fill="#0f172a" />
+</svg>

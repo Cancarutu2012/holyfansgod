@@ -6,12 +6,19 @@ import { createServer as createViteServer } from "vite";
 
 const app = express();
 const PORT = 3000;
-const DB_FILE = path.join(process.cwd(), "database.json");
-const PICS_DIR = path.join(process.cwd(), "pics");
+
+const IS_VERCEL = !!(process.env.VERCEL || process.env.NOW_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const BASE_STORAGE_DIR = IS_VERCEL ? "/tmp" : process.cwd();
+const DB_FILE = path.join(BASE_STORAGE_DIR, "database.json");
+const PICS_DIR = path.join(BASE_STORAGE_DIR, "pics");
 
 // Ensure pics directory exists
 if (!fs.existsSync(PICS_DIR)) {
-  fs.mkdirSync(PICS_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(PICS_DIR, { recursive: true });
+  } catch (err) {
+    console.warn("Could not create pics directory:", err);
+  }
 }
 
 // Database helper functions
@@ -43,8 +50,23 @@ interface DatabaseSchema {
 function readDb(): DatabaseSchema {
   try {
     if (!fs.existsSync(DB_FILE)) {
+      // If running on Vercel, check if there's a starter database.json in process.cwd()
+      const rootDbFile = path.join(process.cwd(), "database.json");
+      if (IS_VERCEL && fs.existsSync(rootDbFile)) {
+        try {
+          const content = fs.readFileSync(rootDbFile, "utf-8");
+          const parsed = JSON.parse(content);
+          fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), "utf-8");
+          return parsed;
+        } catch {
+          // fallback to empty
+        }
+      }
+
       const initial: DatabaseSchema = { users: [], posts: [] };
-      fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), "utf-8");
+      } catch {}
       return initial;
     }
     const content = fs.readFileSync(DB_FILE, "utf-8");
@@ -345,4 +367,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!IS_VERCEL) {
+  startServer();
+}
+
+export default app;

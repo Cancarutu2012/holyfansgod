@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import { User, Post } from "../types";
+import { api } from "../services/apiClient";
 import { X, Upload, Image as ImageIcon, Sparkles, AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface UploadModalProps {
@@ -93,14 +94,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         formData.append("authorHalo", "Kezdő Kereső");
       }
 
-      const response = await fetch("/api/posts", {
-        method: "POST",
-        body: formData,
-      });
+      const data = await api.createPost(formData, selectedFile);
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
+      if (!data.success || !data.post) {
         throw new Error(data.message || "Hiba történt a feltöltés során.");
       }
 

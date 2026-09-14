@@ -1,0 +1,434 @@
+import { User, Post } from "../types";
+import { readLocalDb, writeLocalDb, fileToDataUrl } from "./localDb";
+
+// Safe JSON parser that won't throw SyntaxError on 404 or text/html
+async function parseResponseSafe(res: Response): Promise<{ isJson: boolean; data: any; status: number }> {
+  const status = res.status;
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return { isJson: false, data: null, status };
+  }
+
+  try {
+    const data = await res.json();
+    return { isJson: true, data, status };
+  } catch {
+    return { isJson: false, data: null, status };
+  }
+}
+
+export const api = {
+  // Get all feed posts
+  async getPosts(): Promise<{ success: boolean; posts: Post[] }> {
+    try {
+      const res = await fetch("/api/posts");
+      const { isJson, data, status } = await parseResponseSafe(res);
+
+      if (isJson && data?.success && Array.isArray(data.posts)) {
+        return { success: true, posts: data.posts };
+      }
+
+      // If server returned 404 (e.g. static hosting on Vercel), use local fallback
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        return { success: true, posts: local.posts };
+      }
+
+      return { success: false, posts: [] };
+    } catch {
+      // Network error fallback
+      const local = readLocalDb();
+      return { success: true, posts: local.posts };
+    }
+  },
+
+  // Get community stats
+  async getStats(): Promise<{
+    success: boolean;
+    stats: { totalPosts: number; totalBelievers: number; totalBlessings: number };
+  }> {
+    try {
+      const res = await fetch("/api/stats");
+      const { isJson, data, status } = await parseResponseSafe(res);
+
+      if (isJson && data?.success && data.stats) {
+        return { success: true, stats: data.stats };
+      }
+
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        return {
+          success: true,
+          stats: {
+            totalPosts: local.posts.length,
+            totalBelievers: Math.max(local.users.length, 2),
+            totalBlessings: local.posts.reduce((acc, p) => acc + (p.blessings || 0), 0),
+          },
+        };
+      }
+
+      const local = readLocalDb();
+      return {
+        success: true,
+        stats: {
+          totalPosts: local.posts.length,
+          totalBelievers: local.users.length,
+          totalBlessings: local.posts.reduce((acc, p) => acc + (p.blessings || 0), 0),
+        },
+      };
+    } catch {
+      const local = readLocalDb();
+      return {
+        success: true,
+        stats: {
+          totalPosts: local.posts.length,
+          totalBelievers: Math.max(local.users.length, 2),
+          totalBlessings: local.posts.reduce((acc, p) => acc + (p.blessings || 0), 0),
+        },
+      };
+    }
+  },
+
+  // Register a new user
+  async register(payload: {
+    email: string;
+    password: string;
+    displayName: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    user?: User;
+    token?: string;
+  }> {
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+
+      if (isJson && data) {
+        return data;
+      }
+
+      // If Vercel returned 404, handle registration client-side!
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const trimmedEmail = payload.email.trim().toLowerCase();
+
+        const exists = local.users.find((u) => u.email.toLowerCase() === trimmedEmail);
+        if (exists) {
+          return {
+            success: false,
+            message: "Ezzel az e-mail címmel már regisztráltak a szent közösségbe!",
+          };
+        }
+
+        const haloTitles = [
+          "Arany Dicsfény",
+          "Szeráf Sugárzás",
+          "Kerub Fényhozó",
+          "Hajnalcsillag Áldott",
+          "Mennyei Védelmező",
+          "Szent Lélek Kísérő",
+        ];
+        const randomHalo = haloTitles[Math.floor(Math.random() * haloTitles.length)];
+
+        const newUser: User = {
+          id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          email: trimmedEmail,
+          displayName: payload.displayName.trim(),
+          haloBadge: randomHalo,
+          avatarUrl: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(payload.displayName)}`,
+          createdAt: new Date().toISOString(),
+        };
+
+        local.users.push({ ...newUser, password: payload.password });
+        writeLocalDb(local);
+
+        return {
+          success: true,
+          message: "Áldás reád! Sikeresen csatlakoztál a HolyFans közösségéhez!",
+          user: newUser,
+          token: `token-${newUser.id}`,
+        };
+      }
+
+      return { success: false, message: "A regisztráció sikertelen volt." };
+    } catch {
+      // Local fallback on network error
+      const local = readLocalDb();
+      const trimmedEmail = payload.email.trim().toLowerCase();
+      const exists = local.users.find((u) => u.email.toLowerCase() === trimmedEmail);
+      if (exists) {
+        return {
+          success: false,
+          message: "Ezzel az e-mail címmel már regisztráltak a szent közösségbe!",
+        };
+      }
+
+      const newUser: User = {
+        id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        email: trimmedEmail,
+        displayName: payload.displayName.trim(),
+        haloBadge: "Arany Dicsfény",
+        avatarUrl: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(payload.displayName)}`,
+        createdAt: new Date().toISOString(),
+      };
+
+      local.users.push({ ...newUser, password: payload.password });
+      writeLocalDb(local);
+
+      return {
+        success: true,
+        message: "Áldás reád! Sikeresen regisztráltál!",
+        user: newUser,
+        token: `token-${newUser.id}`,
+      };
+    }
+  },
+
+  // Login
+  async login(payload: {
+    email: string;
+    password: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    user?: User;
+    token?: string;
+  }> {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+
+      if (isJson && data) {
+        return data;
+      }
+
+      // If 404 from Vercel static server, fallback to localDb
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const trimmedEmail = payload.email.trim().toLowerCase();
+        const user = local.users.find(
+          (u) => u.email.toLowerCase() === trimmedEmail && u.password === payload.password
+        );
+
+        if (!user) {
+          return {
+            success: false,
+            message: "Hibás e-mail cím vagy jelszó!",
+          };
+        }
+
+        const { password: _, ...safeUser } = user;
+        return {
+          success: true,
+          message: "Sikeres bejelentkezés! Üdvözlünk a szent körben!",
+          user: safeUser,
+          token: `token-${safeUser.id}`,
+        };
+      }
+
+      return { success: false, message: "A bejelentkezés nem sikerült." };
+    } catch {
+      const local = readLocalDb();
+      const trimmedEmail = payload.email.trim().toLowerCase();
+      const user = local.users.find(
+        (u) => u.email.toLowerCase() === trimmedEmail && u.password === payload.password
+      );
+
+      if (!user) {
+        return { success: false, message: "Hibás e-mail cím vagy jelszó!" };
+      }
+
+      const { password: _, ...safeUser } = user;
+      return {
+        success: true,
+        message: "Sikeres bejelentkezés!",
+        user: safeUser,
+        token: `token-${safeUser.id}`,
+      };
+    }
+  },
+
+  // Verify current user profile
+  async getMe(token: string): Promise<{ success: boolean; user?: User }> {
+    try {
+      const res = await fetch("/api/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+      if (isJson && data?.success && data.user) {
+        return { success: true, user: data.user };
+      }
+
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const userId = token.replace("token-", "");
+        const user = local.users.find((u) => u.id === userId);
+        if (user) {
+          const { password: _, ...safeUser } = user;
+          return { success: true, user: safeUser };
+        }
+      }
+
+      return { success: false };
+    } catch {
+      const local = readLocalDb();
+      const userId = token.replace("token-", "");
+      const user = local.users.find((u) => u.id === userId);
+      if (user) {
+        const { password: _, ...safeUser } = user;
+        return { success: true, user: safeUser };
+      }
+      return { success: false };
+    }
+  },
+
+  // Upload new post
+  async createPost(
+    formData: FormData,
+    file: File | null
+  ): Promise<{ success: boolean; message: string; post?: Post }> {
+    try {
+      const res = await fetch("/api/posts", {
+        method: "POST",
+        body: formData,
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+
+      if (isJson && data?.success && data.post) {
+        return data;
+      }
+
+      // If server returned 404 on Vercel, store image client-side as DataURL!
+      if (status === 404 || !isJson) {
+        const title = (formData.get("title") as string) || "Cím nélküli szent pillanat";
+        const subtitle = (formData.get("subtitle") as string) || "";
+        const authorId = (formData.get("authorId") as string) || "guest-user";
+        const authorName = (formData.get("authorName") as string) || "Dicső Látogató";
+        const authorEmail = (formData.get("authorEmail") as string) || "latogato@holyfans.com";
+        const authorHalo = (formData.get("authorHalo") as string) || "Arany Dicsfény";
+
+        let imageUrl = "/pics/celestial-light.svg";
+        if (file) {
+          imageUrl = await fileToDataUrl(file);
+        }
+
+        const newPost: Post = {
+          id: `post-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          title: title.trim(),
+          subtitle: subtitle.trim(),
+          imageUrl,
+          authorId,
+          authorName,
+          authorEmail,
+          authorHalo,
+          authorAvatar: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(authorName)}`,
+          createdAt: new Date().toISOString(),
+          blessings: 1,
+        };
+
+        const local = readLocalDb();
+        local.posts.unshift(newPost);
+        writeLocalDb(local);
+
+        return {
+          success: true,
+          message: "A kép sikeresen fel lett szentelve és közzétéve a hírfolyamban!",
+          post: newPost,
+        };
+      }
+
+      return {
+        success: false,
+        message: data?.message || "Hiba történt a feltöltés során.",
+      };
+    } catch {
+      // Local fallback
+      const title = (formData.get("title") as string) || "Cím nélküli szent pillanat";
+      const subtitle = (formData.get("subtitle") as string) || "";
+      const authorId = (formData.get("authorId") as string) || "guest-user";
+      const authorName = (formData.get("authorName") as string) || "Dicső Látogató";
+      const authorEmail = (formData.get("authorEmail") as string) || "latogato@holyfans.com";
+      const authorHalo = (formData.get("authorHalo") as string) || "Arany Dicsfény";
+
+      let imageUrl = "/pics/celestial-light.svg";
+      if (file) {
+        imageUrl = await fileToDataUrl(file);
+      }
+
+      const newPost: Post = {
+        id: `post-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        title: title.trim(),
+        subtitle: subtitle.trim(),
+        imageUrl,
+        authorId,
+        authorName,
+        authorEmail,
+        authorHalo,
+        authorAvatar: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(authorName)}`,
+        createdAt: new Date().toISOString(),
+        blessings: 1,
+      };
+
+      const local = readLocalDb();
+      local.posts.unshift(newPost);
+      writeLocalDb(local);
+
+      return {
+        success: true,
+        message: "A kép sikeresen közzétéve!",
+        post: newPost,
+      };
+    }
+  },
+
+  // Bless a post
+  async blessPost(postId: string): Promise<{ success: boolean; blessings: number }> {
+    try {
+      const res = await fetch(`/api/posts/${postId}/bless`, {
+        method: "POST",
+      });
+
+      const { isJson, data, status } = await parseResponseSafe(res);
+
+      if (isJson && data?.success) {
+        return { success: true, blessings: data.blessings };
+      }
+
+      // Fallback
+      if (status === 404 || !isJson) {
+        const local = readLocalDb();
+        const post = local.posts.find((p) => p.id === postId);
+        if (post) {
+          post.blessings = (post.blessings || 0) + 1;
+          writeLocalDb(local);
+          return { success: true, blessings: post.blessings };
+        }
+      }
+
+      return { success: false, blessings: 0 };
+    } catch {
+      const local = readLocalDb();
+      const post = local.posts.find((p) => p.id === postId);
+      if (post) {
+        post.blessings = (post.blessings || 0) + 1;
+        writeLocalDb(local);
+        return { success: true, blessings: post.blessings };
+      }
+      return { success: false, blessings: 0 };
+    }
+  },
+};

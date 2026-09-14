@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useId } from "react";
 import { User, Post } from "./types";
+import { api } from "./services/apiClient";
 import { Navbar } from "./components/Navbar";
 import { PostCard } from "./components/PostCard";
 import { UploadModal } from "./components/UploadModal";
@@ -53,18 +54,13 @@ export default function App() {
     if (savedUser && token) {
       try {
         setCurrentUser(JSON.parse(savedUser));
-        // Verify with server
-        fetch("/api/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.success && data.user) {
-              setCurrentUser(data.user);
-              localStorage.setItem("holyfans_user", JSON.stringify(data.user));
-            }
-          })
-          .catch(() => {});
+        // Verify with server or local storage
+        api.getMe(token).then((data) => {
+          if (data.success && data.user) {
+            setCurrentUser(data.user);
+            localStorage.setItem("holyfans_user", JSON.stringify(data.user));
+          }
+        });
       } catch {
         localStorage.removeItem("holyfans_user");
         localStorage.removeItem("holyfans_token");
@@ -76,13 +72,10 @@ export default function App() {
   const fetchPostsAndStats = async () => {
     setLoading(true);
     try {
-      const [postsRes, statsRes] = await Promise.all([
-        fetch("/api/posts"),
-        fetch("/api/stats"),
+      const [postsData, statsData] = await Promise.all([
+        api.getPosts(),
+        api.getStats(),
       ]);
-
-      const postsData = await postsRes.json();
-      const statsData = await statsRes.json();
 
       if (postsData.success && Array.isArray(postsData.posts)) {
         setPosts(postsData.posts);
@@ -104,10 +97,7 @@ export default function App() {
   // Handle Bless
   const handleBless = async (postId: string) => {
     try {
-      const res = await fetch(`/api/posts/${postId}/bless`, {
-        method: "POST",
-      });
-      const data = await res.json();
+      const data = await api.blessPost(postId);
       if (data.success) {
         setPosts((prev) =>
           prev.map((p) =>
