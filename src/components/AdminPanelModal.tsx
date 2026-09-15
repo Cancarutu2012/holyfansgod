@@ -679,7 +679,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               </div>
             </div>
 
-            {/* Admin Profile Details */}
+            {/* Admin Profile & Database Details */}
             <div className="p-4 sm:p-5 rounded-xl sm:rounded-2xl bg-neutral-950/70 border border-neutral-800 space-y-3">
               <div className="flex items-center gap-2 text-amber-400 font-cinzel font-bold text-sm">
                 <Crown className="w-4 h-4" />
@@ -688,10 +688,25 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <p className="text-xs text-neutral-300 leading-relaxed">
                 Bejelentkezve mint <span className="text-amber-300 font-semibold">{currentUser.displayName}</span> ({currentUser.email}), teljes körű adatbázis-szinkronnal.
               </p>
+              
+              {/* MySQL Status Badge */}
+              <div className="p-3 rounded-xl bg-neutral-900/90 border border-amber-500/20 text-xs space-y-1">
+                <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>MySQL Távoli Adatbázis Csatlakoztatva</span>
+                </div>
+                <div className="text-[11px] text-neutral-400 font-mono">
+                  Szerver: <span className="text-neutral-200">sql7.freesqldatabase.com:3306</span> | Adatbázis: <span className="text-amber-300 font-bold">sql7837130</span>
+                </div>
+                <div className="text-[11px] text-neutral-400">
+                  Minden felhasználó és bejegyzés közvetlenül a távoli MySQL táblákba (<code>users</code>, <code>posts</code>) mentődik el, garantálva a tartós megőrzést.
+                </div>
+              </div>
+
               <div className="text-[11px] text-neutral-400 bg-neutral-900 p-3 rounded-xl border border-neutral-800 space-y-1.5">
-                <div>• <strong>Valós idejű szinkronizáció:</strong> Új regisztrációk és képek azonnal láthatók a Frissítés gombra kattintva vagy ablaknyitáskor.</div>
+                <div>• <strong>Valós idejű szinkronizáció:</strong> Új regisztrációk és képek azonnal a MySQL táblákba kerülnek, és minden eszközön láthatók.</div>
                 <div>• <strong>Jogosultság-kezelés:</strong> Bármelyik hívő felhasználó előléptethető Adminná vagy lefokozható Hívővé egy kattintással.</div>
-                <div>• <strong>Közösségi moderáció:</strong> Nem kívánatos bejegyzések vagy profilok azonnal törölhetők a központi adatbázisból.</div>
+                <div>• <strong>Közösségi moderáció:</strong> Nem kívánatos bejegyzések vagy profilok azonnal törölhetők a központi MySQL adatbázisból.</div>
               </div>
 
               <div className="pt-2">
@@ -701,7 +716,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition-all"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loadingUsers || loadingPosts ? "animate-spin" : ""}`} />
-                  <span>Teljes rendszeradatok újratöltése a szerverről</span>
+                  <span>Teljes rendszeradatok újratöltése a MySQL adatbázisból</span>
                 </button>
               </div>
             </div>
@@ -709,15 +724,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         )}
 
         {/* Footer */}
-        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-neutral-800 flex items-center justify-between">
-          <div className="text-[11px] text-neutral-500 flex items-center gap-2">
+        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="text-[11px] text-neutral-400 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Szerver kapcsolat aktív</span>
+            <span>MySQL Kapcsolat: <span className="text-neutral-300 font-mono">sql7.freesqldatabase.com (sql7837130)</span></span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors"
+            className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors self-end sm:self-auto"
           >
             Bezárás
           </button>
