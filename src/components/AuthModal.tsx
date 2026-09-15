@@ -166,6 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
               className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 text-neutral-100 placeholder-neutral-500 text-sm outline-none transition-colors"
             />
           </div>
@@ -194,19 +195,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {loading ? "Feldolgozás..." : tab === "register" ? "Szent Regisztráció" : "Belépés a Fénybe"}
           </button>
 
-          {/* Quick Admin fill button */}
+          {/* Quick Admin fill button (email only, no password autofill) */}
           {tab === "login" && (
             <div className="pt-2 border-t border-neutral-800/80">
               <button
                 type="button"
                 onClick={() => {
                   setEmail("admin@holyfans.com");
-                  setPassword("admin");
+                  setPassword("");
                 }}
                 className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                <span>Admin fiók automatikus kitöltése (admin@holyfans.com)</span>
+                <span>Főpap admin e-mail kitöltése (admin@holyfans.com)</span>
               </button>
             </div>
           )}
