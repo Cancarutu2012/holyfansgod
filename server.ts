@@ -1,4 +1,4 @@
-import app from "./api/index.ts";
+import app from "./api/index";
 import path from "path";
 import express from "express";
 import type { Request, Response } from "express";

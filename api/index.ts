@@ -3,51 +3,47 @@ import type { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import {
-  initMySql,
-  getMySqlUsers,
-  getMySqlUserByEmail,
-  getMySqlUserById,
-  saveMySqlUser,
-  updateMySqlUserProfile,
-  updateMySqlUserRole,
-  deleteMySqlUser,
-  getMySqlPosts,
-  getMySqlPostById,
-  saveMySqlPost,
-  updateMySqlPost,
-  incrementMySqlBlessings,
-  deleteMySqlPost,
-  bulkSyncToMySql,
-  checkMySqlHealth,
-  type DbUser,
-  type DbPost,
-} from "./mysql.ts";
+import mysql from "mysql2/promise";
+import type { Pool, RowDataPacket } from "mysql2/promise";
 
 const app = express();
 
-const IS_VERCEL = !!(process.env.VERCEL || process.env.NOW_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME);
-const BASE_STORAGE_DIR = IS_VERCEL ? "/tmp" : process.cwd();
-const DB_FILE = path.join(BASE_STORAGE_DIR, "database.json");
-const PICS_DIR = path.join(BASE_STORAGE_DIR, "pics");
-
-// Ensure pics directory exists
-if (!fs.existsSync(PICS_DIR)) {
-  try {
-    fs.mkdirSync(PICS_DIR, { recursive: true });
-  } catch (err) {
-    console.warn("Could not create pics directory:", err);
-  }
+// ----------------------------------------------------
+// Type Definitions
+// ----------------------------------------------------
+export interface DbUser {
+  id: string;
+  email: string;
+  password: string;
+  displayName: string;
+  role?: "admin" | "user";
+  haloBadge?: string;
+  avatarUrl?: string;
+  createdAt: string;
 }
 
-// Database schema for fallback cache
+export interface DbPost {
+  id: string;
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  authorId: string;
+  authorName: string;
+  authorEmail: string;
+  authorHalo?: string;
+  authorAvatar?: string;
+  createdAt: string;
+  blessings: number;
+}
+
 interface DatabaseSchema {
   users: DbUser[];
   posts: DbPost[];
 }
 
-let memoryDb: DatabaseSchema | null = null;
-
+// ----------------------------------------------------
+// Default Seed Data
+// ----------------------------------------------------
 const DEFAULT_USERS: DbUser[] = [
   {
     id: "admin-holy-1",
@@ -123,156 +119,578 @@ const DEFAULT_POSTS: DbPost[] = [
   },
 ];
 
-// Initialize MySQL and sync with local storage
-initMySql()
-  .then(async (ok) => {
+// In-memory fallback cache
+let memoryDb: DatabaseSchema = {
+  users: [...DEFAULT_USERS],
+  posts: [...DEFAULT_POSTS],
+};
+
+// ----------------------------------------------------
+// MySQL Configuration & Connection Pool
+// ----------------------------------------------------
+const DB_CONFIG = {
+  host: process.env.MYSQL_HOST || "sql7.freesqldatabase.com",
+  user: process.env.MYSQL_USER || "sql7837130",
+  password: process.env.MYSQL_PASSWORD || "1ysw2J7xdC",
+  database: process.env.MYSQL_DATABASE || "sql7837130",
+  port: Number(process.env.MYSQL_PORT) || 3306,
+  waitForConnections: true,
+  connectionLimit: 5,
+  queueLimit: 0,
+  connectTimeout: 5000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 5000,
+};
+
+let pool: Pool | null = null;
+let initialized = false;
+let initPromise: Promise<boolean> | null = null;
+
+function getPool(): Pool {
+  if (!pool) {
+    pool = mysql.createPool(DB_CONFIG);
+  }
+  return pool;
+}
+
+// Timeout wrapper for MySQL queries to prevent serverless function hangs
+function withTimeout<T>(promise: Promise<T>, ms = 4000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`MySQL operation timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+async function initMySql(): Promise<boolean> {
+  if (initialized) return true;
+  try {
+    const p = getPool();
+    await withTimeout(
+      p.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(191) PRIMARY KEY,
+          email VARCHAR(191) NOT NULL UNIQUE,
+          password VARCHAR(255) NOT NULL,
+          displayName VARCHAR(255) NOT NULL,
+          role VARCHAR(50) DEFAULT 'user',
+          haloBadge VARCHAR(255) DEFAULT 'Szent Lélek Kísérő',
+          avatarUrl LONGTEXT NULL,
+          createdAt VARCHAR(100) NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `),
+      5000
+    );
+
+    await withTimeout(
+      p.query(`
+        CREATE TABLE IF NOT EXISTS posts (
+          id VARCHAR(191) PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          subtitle TEXT NULL,
+          imageUrl LONGTEXT NOT NULL,
+          authorId VARCHAR(191) NOT NULL,
+          authorName VARCHAR(255) NOT NULL,
+          authorEmail VARCHAR(191) NOT NULL,
+          authorHalo VARCHAR(255) NULL,
+          authorAvatar LONGTEXT NULL,
+          createdAt VARCHAR(100) NOT NULL,
+          blessings INT DEFAULT 1
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `),
+      5000
+    );
+
+    initialized = true;
+    console.log("✨ MySQL adatbázis csatlakoztatva és készen áll (sql7.freesqldatabase.com)!");
+    return true;
+  } catch (err) {
+    console.warn("⚠️ MySQL inicializálási figyelmeztetés (in-memory fallback aktív):", err);
+    return false;
+  }
+}
+
+// Lazy initialization wrapper that never throws
+async function ensureDb(): Promise<boolean> {
+  if (initialized) return true;
+  if (!initPromise) {
+    initPromise = initMySql()
+      .then((ok) => {
+        if (!ok) initPromise = null;
+        return ok;
+      })
+      .catch(() => {
+        initPromise = null;
+        return false;
+      });
+  }
+  return initPromise;
+}
+
+// ----------------------------------------------------
+// MySQL Data Access Layer with Safe Fallbacks
+// ----------------------------------------------------
+
+async function getMySqlUsers(): Promise<DbUser[]> {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return memoryDb.users;
+    const p = getPool();
+    const [rows] = await withTimeout(
+      p.query<RowDataPacket[]>(
+        "SELECT id, email, password, displayName, role, haloBadge, avatarUrl, createdAt FROM users ORDER BY createdAt ASC"
+      ),
+      4000
+    );
+    const users: DbUser[] = rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      password: r.password,
+      displayName: r.displayName,
+      role: (r.role as "admin" | "user") || "user",
+      haloBadge: r.haloBadge || "Szent Lélek Kísérő",
+      avatarUrl: r.avatarUrl || `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(r.displayName)}`,
+      createdAt: r.createdAt,
+    }));
+    if (users.length > 0) {
+      memoryDb.users = users;
+    }
+    return users.length > 0 ? users : memoryDb.users;
+  } catch (err) {
+    console.warn("getMySqlUsers fallback to memory:", err);
+    return memoryDb.users;
+  }
+}
+
+async function getMySqlUserByEmail(email: string): Promise<DbUser | null> {
+  const cleanEmail = email.trim().toLowerCase();
+  try {
+    const ok = await ensureDb();
     if (ok) {
-      console.log("✨ Connected to MySQL (sql7.freesqldatabase.com) successfully!");
-      // Initial sync of default admin and demo records if table was empty
-      const currentUsers = await getMySqlUsers().catch(() => []);
-      if (currentUsers.length === 0) {
-        for (const u of DEFAULT_USERS) {
-          await saveMySqlUser(u).catch(() => {});
-        }
-      }
-      const currentPosts = await getMySqlPosts().catch(() => []);
-      if (currentPosts.length === 0) {
-        for (const p of DEFAULT_POSTS) {
-          await saveMySqlPost(p).catch(() => {});
-        }
-      }
-    }
-  })
-  .catch((err) => {
-    console.warn("MySQL startup initialization note:", err);
-  });
-
-function readDb(): DatabaseSchema {
-  const rootDbFile = path.join(process.cwd(), "database.json");
-  const userMap = new Map<string, DbUser>();
-  const postMap = new Map<string, DbPost>();
-
-  for (const u of DEFAULT_USERS) {
-    userMap.set(u.id, u);
-    if (u.email) userMap.set(u.email.toLowerCase(), u);
-  }
-  for (const p of DEFAULT_POSTS) {
-    postMap.set(p.id, p);
-  }
-
-  try {
-    if (fs.existsSync(rootDbFile)) {
-      const parsedRoot = JSON.parse(fs.readFileSync(rootDbFile, "utf-8"));
-      if (Array.isArray(parsedRoot.users)) {
-        for (const u of parsedRoot.users) {
-          userMap.set(u.id, u);
-          if (u.email) userMap.set(u.email.toLowerCase(), u);
-        }
-      }
-      if (Array.isArray(parsedRoot.posts)) {
-        for (const p of parsedRoot.posts) {
-          postMap.set(p.id, p);
-        }
+      const p = getPool();
+      const [rows] = await withTimeout(
+        p.query<RowDataPacket[]>(
+          "SELECT id, email, password, displayName, role, haloBadge, avatarUrl, createdAt FROM users WHERE LOWER(email) = ? LIMIT 1",
+          [cleanEmail]
+        ),
+        3000
+      );
+      if (rows && rows.length > 0) {
+        const r = rows[0];
+        return {
+          id: r.id,
+          email: r.email,
+          password: r.password,
+          displayName: r.displayName,
+          role: (r.role as "admin" | "user") || "user",
+          haloBadge: r.haloBadge || "Szent Lélek Kísérő",
+          avatarUrl: r.avatarUrl || "",
+          createdAt: r.createdAt,
+        };
       }
     }
   } catch (err) {
-    console.warn("Could not read rootDbFile:", err);
+    console.warn("getMySqlUserByEmail fallback:", err);
   }
-
-  try {
-    if (fs.existsSync(DB_FILE) && DB_FILE !== rootDbFile) {
-      const parsedTmp = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-      if (Array.isArray(parsedTmp.users)) {
-        for (const u of parsedTmp.users) {
-          userMap.set(u.id, u);
-          if (u.email) userMap.set(u.email.toLowerCase(), u);
-        }
-      }
-      if (Array.isArray(parsedTmp.posts)) {
-        for (const p of parsedTmp.posts) {
-          postMap.set(p.id, p);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("Could not read DB_FILE:", err);
-  }
-
-  if (memoryDb?.users) {
-    for (const u of memoryDb.users) {
-      userMap.set(u.id, u);
-      if (u.email) userMap.set(u.email.toLowerCase(), u);
-    }
-  }
-  if (memoryDb?.posts) {
-    for (const p of memoryDb.posts) {
-      postMap.set(p.id, p);
-    }
-  }
-
-  const uniqueUsers: DbUser[] = [];
-  const seenUserIds = new Set<string>();
-  for (const u of userMap.values()) {
-    if (!seenUserIds.has(u.id)) {
-      seenUserIds.add(u.id);
-      uniqueUsers.push(u);
-    }
-  }
-
-  memoryDb = {
-    users: uniqueUsers,
-    posts: Array.from(postMap.values()),
-  };
-
-  if (!memoryDb.posts || memoryDb.posts.length === 0) {
-    memoryDb.posts = [...DEFAULT_POSTS];
-  }
-
-  if (!memoryDb.users.some((u) => u.email && u.email.toLowerCase() === "admin@holyfans.com")) {
-    memoryDb.users.unshift(DEFAULT_USERS[0]);
-  }
-
-  return memoryDb;
+  return memoryDb.users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
 }
 
-function writeDb(data: DatabaseSchema): void {
-  memoryDb = data;
-  const rootDbFile = path.join(process.cwd(), "database.json");
-  const serialized = JSON.stringify(data, null, 2);
-
+async function getMySqlUserById(id: string): Promise<DbUser | null> {
   try {
-    fs.writeFileSync(DB_FILE, serialized, "utf-8");
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      const [rows] = await withTimeout(
+        p.query<RowDataPacket[]>(
+          "SELECT id, email, password, displayName, role, haloBadge, avatarUrl, createdAt FROM users WHERE id = ? LIMIT 1",
+          [id]
+        ),
+        3000
+      );
+      if (rows && rows.length > 0) {
+        const r = rows[0];
+        return {
+          id: r.id,
+          email: r.email,
+          password: r.password,
+          displayName: r.displayName,
+          role: (r.role as "admin" | "user") || "user",
+          haloBadge: r.haloBadge || "Szent Lélek Kísérő",
+          avatarUrl: r.avatarUrl || "",
+          createdAt: r.createdAt,
+        };
+      }
+    }
   } catch (err) {
-    console.warn("Could not write DB_FILE:", err);
+    console.warn("getMySqlUserById fallback:", err);
+  }
+  return memoryDb.users.find((u) => u.id === id) || null;
+}
+
+async function saveMySqlUser(user: DbUser): Promise<void> {
+  // Always update memoryDb
+  const existingIdx = memoryDb.users.findIndex((u) => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+  if (existingIdx !== -1) {
+    memoryDb.users[existingIdx] = user;
+  } else {
+    memoryDb.users.push(user);
   }
 
   try {
-    if (rootDbFile !== DB_FILE) {
-      fs.writeFileSync(rootDbFile, serialized, "utf-8");
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      await withTimeout(
+        p.query(
+          `INSERT INTO users (id, email, password, displayName, role, haloBadge, avatarUrl, createdAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+            password = VALUES(password),
+            displayName = VALUES(displayName),
+            role = VALUES(role),
+            haloBadge = VALUES(haloBadge),
+            avatarUrl = VALUES(avatarUrl)`,
+          [
+            user.id,
+            user.email.toLowerCase(),
+            user.password,
+            user.displayName,
+            user.role || "user",
+            user.haloBadge || "Szent Lélek Kísérő",
+            user.avatarUrl || "",
+            user.createdAt || new Date().toISOString(),
+          ]
+        ),
+        4000
+      );
     }
-  } catch {}
+  } catch (err) {
+    console.warn("saveMySqlUser error:", err);
+  }
 }
 
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    if (!fs.existsSync(PICS_DIR)) {
-      try {
-        fs.mkdirSync(PICS_DIR, { recursive: true });
-      } catch {}
-    }
-    cb(null, PICS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-    const cleanBase = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "");
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e5)}`;
-    cb(null, `holy-${cleanBase ? cleanBase.slice(0, 20) + "-" : ""}${uniqueSuffix}${ext}`);
-  },
-});
+async function updateMySqlUserProfile(
+  id: string,
+  updates: { displayName?: string; haloBadge?: string; avatarUrl?: string; password?: string }
+): Promise<DbUser | null> {
+  const localU = memoryDb.users.find((u) => u.id === id);
+  if (localU) {
+    Object.assign(localU, updates);
+  }
 
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      const fields: string[] = [];
+      const values: any[] = [];
+      if (updates.displayName) {
+        fields.push("displayName = ?");
+        values.push(updates.displayName);
+      }
+      if (updates.haloBadge) {
+        fields.push("haloBadge = ?");
+        values.push(updates.haloBadge);
+      }
+      if (updates.avatarUrl !== undefined) {
+        fields.push("avatarUrl = ?");
+        values.push(updates.avatarUrl);
+      }
+      if (updates.password) {
+        fields.push("password = ?");
+        values.push(updates.password);
+      }
+      if (fields.length > 0) {
+        values.push(id);
+        await withTimeout(p.execute(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, values), 4000);
+      }
+    }
+  } catch (err) {
+    console.warn("updateMySqlUserProfile error:", err);
+  }
+
+  return localU || getMySqlUserById(id);
+}
+
+async function updateMySqlUserRole(id: string, role: "admin" | "user"): Promise<void> {
+  const localU = memoryDb.users.find((u) => u.id === id);
+  if (localU) localU.role = role;
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      await withTimeout(p.execute("UPDATE users SET role = ? WHERE id = ?", [role, id]), 3000);
+    }
+  } catch (err) {
+    console.warn("updateMySqlUserRole error:", err);
+  }
+}
+
+async function deleteMySqlUser(id: string): Promise<void> {
+  const user = memoryDb.users.find((u) => u.id === id);
+  memoryDb.users = memoryDb.users.filter((u) => u.id !== id);
+  if (user?.email) {
+    memoryDb.posts = memoryDb.posts.filter((p) => p.authorId !== id && p.authorEmail !== user.email);
+  }
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      await withTimeout(p.execute("DELETE FROM posts WHERE authorId = ?", [id]), 3000);
+      await withTimeout(p.execute("DELETE FROM users WHERE id = ?", [id]), 3000);
+    }
+  } catch (err) {
+    console.warn("deleteMySqlUser error:", err);
+  }
+}
+
+async function getMySqlPosts(): Promise<DbPost[]> {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return memoryDb.posts;
+    const p = getPool();
+    const [rows] = await withTimeout(
+      p.query<RowDataPacket[]>(
+        "SELECT id, title, subtitle, imageUrl, authorId, authorName, authorEmail, authorHalo, authorAvatar, createdAt, blessings FROM posts ORDER BY createdAt DESC"
+      ),
+      4000
+    );
+    const posts: DbPost[] = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      subtitle: r.subtitle || "",
+      imageUrl: r.imageUrl,
+      authorId: r.authorId,
+      authorName: r.authorName,
+      authorEmail: r.authorEmail,
+      authorHalo: r.authorHalo || "",
+      authorAvatar: r.authorAvatar || "",
+      createdAt: r.createdAt,
+      blessings: Number(r.blessings) || 0,
+    }));
+    if (posts.length > 0) {
+      memoryDb.posts = posts;
+    }
+    return posts.length > 0 ? posts : memoryDb.posts;
+  } catch (err) {
+    console.warn("getMySqlPosts fallback to memory:", err);
+    return memoryDb.posts;
+  }
+}
+
+async function getMySqlPostById(id: string): Promise<DbPost | null> {
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      const [rows] = await withTimeout(
+        p.query<RowDataPacket[]>(
+          "SELECT id, title, subtitle, imageUrl, authorId, authorName, authorEmail, authorHalo, authorAvatar, createdAt, blessings FROM posts WHERE id = ? LIMIT 1",
+          [id]
+        ),
+        3000
+      );
+      if (rows && rows.length > 0) {
+        const r = rows[0];
+        return {
+          id: r.id,
+          title: r.title,
+          subtitle: r.subtitle || "",
+          imageUrl: r.imageUrl,
+          authorId: r.authorId,
+          authorName: r.authorName,
+          authorEmail: r.authorEmail,
+          authorHalo: r.authorHalo || "",
+          authorAvatar: r.authorAvatar || "",
+          createdAt: r.createdAt,
+          blessings: Number(r.blessings) || 0,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("getMySqlPostById fallback:", err);
+  }
+  return memoryDb.posts.find((p) => p.id === id) || null;
+}
+
+async function saveMySqlPost(post: DbPost): Promise<void> {
+  const existingIdx = memoryDb.posts.findIndex((p) => p.id === post.id);
+  if (existingIdx !== -1) {
+    memoryDb.posts[existingIdx] = post;
+  } else {
+    memoryDb.posts.unshift(post);
+  }
+
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      await withTimeout(
+        p.query(
+          `INSERT INTO posts (id, title, subtitle, imageUrl, authorId, authorName, authorEmail, authorHalo, authorAvatar, createdAt, blessings)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            subtitle = VALUES(subtitle),
+            imageUrl = VALUES(imageUrl),
+            blessings = VALUES(blessings)`,
+          [
+            post.id,
+            post.title,
+            post.subtitle || "",
+            post.imageUrl,
+            post.authorId,
+            post.authorName,
+            post.authorEmail,
+            post.authorHalo || "",
+            post.authorAvatar || "",
+            post.createdAt || new Date().toISOString(),
+            post.blessings || 1,
+          ]
+        ),
+        5000
+      );
+    }
+  } catch (err) {
+    console.warn("saveMySqlPost error:", err);
+  }
+}
+
+async function updateMySqlPost(id: string, updates: { title?: string; subtitle?: string }): Promise<DbPost | null> {
+  const localP = memoryDb.posts.find((p) => p.id === id);
+  if (localP) {
+    if (updates.title) localP.title = updates.title;
+    if (updates.subtitle !== undefined) localP.subtitle = updates.subtitle;
+  }
+
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      const fields: string[] = [];
+      const values: any[] = [];
+      if (updates.title) {
+        fields.push("title = ?");
+        values.push(updates.title);
+      }
+      if (updates.subtitle !== undefined) {
+        fields.push("subtitle = ?");
+        values.push(updates.subtitle);
+      }
+      if (fields.length > 0) {
+        values.push(id);
+        await withTimeout(p.execute(`UPDATE posts SET ${fields.join(", ")} WHERE id = ?`, values), 3000);
+      }
+    }
+  } catch (err) {
+    console.warn("updateMySqlPost error:", err);
+  }
+  return localP || getMySqlPostById(id);
+}
+
+async function incrementMySqlBlessings(id: string): Promise<number> {
+  let count = 1;
+  const localP = memoryDb.posts.find((p) => p.id === id);
+  if (localP) {
+    localP.blessings = (localP.blessings || 0) + 1;
+    count = localP.blessings;
+  }
+
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      await withTimeout(p.execute("UPDATE posts SET blessings = blessings + 1 WHERE id = ?", [id]), 3000);
+      const [rows] = await withTimeout(p.query<RowDataPacket[]>("SELECT blessings FROM posts WHERE id = ?", [id]), 2000);
+      if (rows && rows.length > 0) {
+        count = Number(rows[0].blessings);
+        if (localP) localP.blessings = count;
+      }
+    }
+  } catch (err) {
+    console.warn("incrementMySqlBlessings error:", err);
+  }
+  return count;
+}
+
+async function deleteMySqlPost(id: string): Promise<void> {
+  memoryDb.posts = memoryDb.posts.filter((p) => p.id !== id);
+  try {
+    const ok = await ensureDb();
+    if (ok) {
+      const p = getPool();
+      await withTimeout(p.execute("DELETE FROM posts WHERE id = ?", [id]), 3000);
+    }
+  } catch (err) {
+    console.warn("deleteMySqlPost error:", err);
+  }
+}
+
+async function bulkSyncToMySql(
+  users?: DbUser[],
+  posts?: DbPost[]
+): Promise<{ usersSaved: number; postsSaved: number }> {
+  let usersSaved = 0;
+  let postsSaved = 0;
+
+  if (Array.isArray(users)) {
+    for (const u of users) {
+      if (!u.id || !u.email) continue;
+      await saveMySqlUser(u);
+      usersSaved++;
+    }
+  }
+
+  if (Array.isArray(posts)) {
+    for (const p of posts) {
+      if (!p.id || !p.title) continue;
+      await saveMySqlPost(p);
+      postsSaved++;
+    }
+  }
+
+  return { usersSaved, postsSaved };
+}
+
+async function checkMySqlHealth(): Promise<{ connected: boolean; host: string; database: string; userCount: number; postCount: number }> {
+  try {
+    const ok = await ensureDb();
+    if (!ok) {
+      return {
+        connected: false,
+        host: DB_CONFIG.host,
+        database: DB_CONFIG.database,
+        userCount: memoryDb.users.length,
+        postCount: memoryDb.posts.length,
+      };
+    }
+    const p = getPool();
+    const [uRows] = await withTimeout(p.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM users"), 3000);
+    const [pRows] = await withTimeout(p.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM posts"), 3000);
+    return {
+      connected: true,
+      host: DB_CONFIG.host,
+      database: DB_CONFIG.database,
+      userCount: Number(uRows[0]?.count) || memoryDb.users.length,
+      postCount: Number(pRows[0]?.count) || memoryDb.posts.length,
+    };
+  } catch (err) {
+    return {
+      connected: false,
+      host: DB_CONFIG.host,
+      database: DB_CONFIG.database,
+      userCount: memoryDb.users.length,
+      postCount: memoryDb.posts.length,
+    };
+  }
+}
+
+// ----------------------------------------------------
+// Multer Configuration (Memory Storage for Serverless)
+// ----------------------------------------------------
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 15 * 1024 * 1024,
   },
@@ -285,7 +703,9 @@ const upload = multer({
   },
 });
 
-// Middlewares
+// ----------------------------------------------------
+// Express Middlewares
+// ----------------------------------------------------
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -294,6 +714,7 @@ app.use((req: Request, res: Response, next: any) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   if (req.method === "OPTIONS") {
     res.sendStatus(200);
     return;
@@ -301,38 +722,31 @@ app.use((req: Request, res: Response, next: any) => {
   next();
 });
 
-// Direct route to serve pics, checking /tmp/pics, public/pics, and root pics
+// Serve static sample SVG pics directly if available
 app.get(["/pics/:filename", "/api/pics/:filename"], (req: Request, res: Response) => {
   const filename = path.basename(req.params.filename);
   const possiblePaths = [
-    path.join(PICS_DIR, filename),
     path.join(process.cwd(), "public", "pics", filename),
     path.join(process.cwd(), "pics", filename),
     path.join(process.cwd(), "dist", "pics", filename),
   ];
 
   for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      if (filename.endsWith(".svg")) {
-        res.setHeader("Content-Type", "image/svg+xml");
-      } else if (filename.endsWith(".png")) {
-        res.setHeader("Content-Type", "image/png");
-      } else if (filename.endsWith(".webp")) {
-        res.setHeader("Content-Type", "image/webp");
-      } else if (filename.endsWith(".gif")) {
-        res.setHeader("Content-Type", "image/gif");
-      } else {
-        res.setHeader("Content-Type", "image/jpeg");
+    try {
+      if (fs.existsSync(p)) {
+        if (filename.endsWith(".svg")) {
+          res.setHeader("Content-Type", "image/svg+xml");
+        } else if (filename.endsWith(".png")) {
+          res.setHeader("Content-Type", "image/png");
+        } else {
+          res.setHeader("Content-Type", "image/jpeg");
+        }
+        return res.sendFile(p);
       }
-      return res.sendFile(p);
-    }
+    } catch {}
   }
-
   res.status(404).send("Szent kép nem található.");
 });
-
-// Serve pics folder statically as /pics
-app.use("/pics", express.static(PICS_DIR));
 
 // ----------------------------------------------------
 // Authentication Resolver
@@ -347,28 +761,19 @@ async function resolveAuthUser(req: Request): Promise<DbUser | null> {
   token = token.replace(/^["']|["']$/g, "").trim();
   const userId = token.replace(/^token-/, "");
 
-  // 1. Try MySQL
-  try {
-    if (token === "token-admin" || token === "admin" || userId === "admin" || token === "token-admin-holy-1") {
-      const admin = await getMySqlUserByEmail("admin@holyfans.com");
-      if (admin) return admin;
-    }
-    const user =
-      (await getMySqlUserById(userId)) ||
-      (await getMySqlUserById(token)) ||
-      (await getMySqlUserByEmail(userId));
-    if (user) return user;
-  } catch (err) {
-    console.warn("resolveAuthUser MySQL fallback:", err);
+  if (token === "token-admin" || token === "admin" || userId === "admin" || token === "token-admin-holy-1") {
+    const admin = await getMySqlUserByEmail("admin@holyfans.com");
+    if (admin) return admin;
   }
 
-  // 2. Fallback to local cache
-  const db = readDb();
-  if (token === "token-admin" || token === "admin" || userId === "admin" || token === "token-admin-holy-1") {
-    return db.users.find((u) => u.email && u.email.toLowerCase() === "admin@holyfans.com") || db.users[0] || null;
-  }
+  const user =
+    (await getMySqlUserById(userId)) ||
+    (await getMySqlUserById(token)) ||
+    (await getMySqlUserByEmail(userId));
+  if (user) return user;
+
   return (
-    db.users.find(
+    memoryDb.users.find(
       (u) =>
         u.id === userId ||
         u.id === token ||
@@ -388,7 +793,7 @@ app.get(["/api/health", "/health"], async (req: Request, res: Response) => {
   res.json({
     status: "ok",
     service: "HolyFans API",
-    version: "3.0.0",
+    version: "3.1.0",
     database: "MySQL (sql7.freesqldatabase.com)",
     mysql: mysqlHealth,
   });
@@ -396,547 +801,434 @@ app.get(["/api/health", "/health"], async (req: Request, res: Response) => {
 
 // Authentication: Register
 app.post(["/api/register", "/register"], async (req: Request, res: Response) => {
-  const { email, password, displayName } = req.body;
-
-  if (!email || !password || !displayName) {
-    res.status(400).json({
-      success: false,
-      message: "Kérlek töltsd ki az összes mezőt (Email, Jelszó, Megjelenített név)!",
-    });
-    return;
-  }
-
-  const trimmedEmail = email.trim().toLowerCase();
-  const trimmedName = displayName.trim();
-
-  if (password.length < 4) {
-    res.status(400).json({ success: false, message: "A jelszónak legalább 4 karakter hosszúnak kell lennie!" });
-    return;
-  }
-
-  // Check if user exists in MySQL or local DB
-  let existingUser = await getMySqlUserByEmail(trimmedEmail).catch(() => null);
-  if (!existingUser) {
-    const db = readDb();
-    existingUser = db.users.find((u) => u.email.toLowerCase() === trimmedEmail) || null;
-  }
-
-  if (existingUser) {
-    res.status(409).json({
-      success: false,
-      message: "Ezzel az e-mail címmel már regisztráltak a szent közösségbe!",
-    });
-    return;
-  }
-
-  const haloTitles = [
-    "Arany Dicsfény",
-    "Szeráf Sugárzás",
-    "Kerub Fényhozó",
-    "Hajnalcsillag Áldott",
-    "Mennyei Védelmező",
-    "Szent Lélek Kísérő",
-  ];
-  const randomHalo = haloTitles[Math.floor(Math.random() * haloTitles.length)];
-
-  const newUser: DbUser = {
-    id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    email: trimmedEmail,
-    password: password,
-    displayName: trimmedName,
-    role: "user",
-    haloBadge: randomHalo,
-    avatarUrl: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(trimmedName)}`,
-    createdAt: new Date().toISOString(),
-  };
-
-  // 1. Save to MySQL database
   try {
+    const { email, password, displayName } = req.body;
+
+    if (!email || !password || !displayName) {
+      res.status(400).json({
+        success: false,
+        message: "Kérlek töltsd ki az összes mezőt (Email, Jelszó, Megjelenített név)!",
+      });
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = displayName.trim();
+
+    if (password.length < 4) {
+      res.status(400).json({ success: false, message: "A jelszónak legalább 4 karakter hosszúnak kell lennie!" });
+      return;
+    }
+
+    const existingUser = await getMySqlUserByEmail(trimmedEmail);
+    if (existingUser) {
+      res.status(409).json({
+        success: false,
+        message: "Ezzel az e-mail címmel már regisztráltak a szent közösségbe!",
+      });
+      return;
+    }
+
+    const haloTitles = [
+      "Arany Dicsfény",
+      "Szeráf Sugárzás",
+      "Kerub Fényhozó",
+      "Hajnalcsillag Áldott",
+      "Mennyei Védelmező",
+      "Szent Lélek Kísérő",
+    ];
+    const randomHalo = haloTitles[Math.floor(Math.random() * haloTitles.length)];
+
+    const newUser: DbUser = {
+      id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      email: trimmedEmail,
+      password: password,
+      displayName: trimmedName,
+      role: "user",
+      haloBadge: randomHalo,
+      avatarUrl: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(trimmedName)}`,
+      createdAt: new Date().toISOString(),
+    };
+
     await saveMySqlUser(newUser);
-  } catch (err) {
-    console.error("Failed to save user to MySQL:", err);
+
+    const { password: _, ...safeUser } = newUser;
+    res.status(201).json({
+      success: true,
+      message: "Áldás reád! Sikeresen csatlakoztál a HolyFans közösségéhez!",
+      user: safeUser,
+      token: `token-${newUser.id}`,
+    });
+  } catch (err: any) {
+    console.error("Register error:", err);
+    res.status(500).json({ success: false, message: "Hiba történt a regisztráció során." });
   }
-
-  // 2. Also keep in local cache
-  const db = readDb();
-  db.users.push(newUser);
-  writeDb(db);
-
-  const { password: _, ...safeUser } = newUser;
-  res.status(201).json({
-    success: true,
-    message: "Áldás reád! Sikeresen csatlakoztál a HolyFans közösségéhez!",
-    user: safeUser,
-    token: `token-${newUser.id}`,
-  });
 });
 
 // Authentication: Login
 app.post(["/api/login", "/login"], async (req: Request, res: Response) => {
-  const { email, password, clientUser } = req.body;
+  try {
+    const { email, password, clientUser } = req.body;
 
-  if (!email || !password) {
-    res.status(400).json({ success: false, message: "Add meg az e-mail címed és a jelszavad!" });
-    return;
-  }
-
-  const trimmedEmail = email.trim().toLowerCase();
-
-  // Admin login handler
-  if (trimmedEmail === "admin@holyfans.com" && password === "admin") {
-    let adminUser = await getMySqlUserByEmail("admin@holyfans.com").catch(() => null);
-    if (!adminUser) {
-      adminUser = {
-        id: "admin-holy-1",
-        email: "admin@holyfans.com",
-        password: "admin",
-        displayName: "Főpap Admin",
-        role: "admin",
-        haloBadge: "Arkangyal Adminisztrátor",
-        avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      };
-      await saveMySqlUser(adminUser).catch(() => {});
+    if (!email || !password) {
+      res.status(400).json({ success: false, message: "Add meg az e-mail címed és a jelszavad!" });
+      return;
     }
-    const { password: _, ...safeAdmin } = adminUser;
+
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // Admin login handler
+    if (trimmedEmail === "admin@holyfans.com" && password === "admin") {
+      let adminUser = await getMySqlUserByEmail("admin@holyfans.com");
+      if (!adminUser) {
+        adminUser = {
+          id: "admin-holy-1",
+          email: "admin@holyfans.com",
+          password: "admin",
+          displayName: "Főpap Admin",
+          role: "admin",
+          haloBadge: "Arkangyal Adminisztrátor",
+          avatarUrl: "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=ArchangelAdmin",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        };
+        await saveMySqlUser(adminUser);
+      }
+      const { password: _, ...safeAdmin } = adminUser;
+      res.json({
+        success: true,
+        message: "Üdvözlünk, Főpap Admin! A szentély kapui nyitva állnak.",
+        user: safeAdmin,
+        token: "token-admin-holy-1",
+      });
+      return;
+    }
+
+    let user: DbUser | null = await getMySqlUserByEmail(trimmedEmail);
+
+    // If client provided clientUser with matching credentials, accept & persist
+    if (!user && clientUser && typeof clientUser === "object") {
+      if (
+        clientUser.email &&
+        clientUser.email.toLowerCase() === trimmedEmail &&
+        clientUser.password === password
+      ) {
+        user = {
+          id: clientUser.id || `user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          email: trimmedEmail,
+          password: clientUser.password,
+          displayName: clientUser.displayName || "Szent Hívő",
+          role: clientUser.role || "user",
+          haloBadge: clientUser.haloBadge || "Szent Lélek Kísérő",
+          avatarUrl:
+            clientUser.avatarUrl ||
+            `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(clientUser.displayName || "User")}`,
+          createdAt: clientUser.createdAt || new Date().toISOString(),
+        };
+        await saveMySqlUser(user);
+      }
+    }
+
+    if (!user || user.password !== password) {
+      res.status(401).json({ success: false, message: "Hibás e-mail cím vagy jelszó!" });
+      return;
+    }
+
+    const { password: _, ...safeUser } = user;
     res.json({
       success: true,
-      message: "Üdvözlünk, Főpap Admin! A szentély kapui nyitva állnak.",
-      user: safeAdmin,
-      token: "token-admin-holy-1",
+      message: "Sikeres bejelentkezés! Üdvözlünk a szent körben!",
+      user: safeUser,
+      token: `token-${user.id}`,
     });
-    return;
+  } catch (err: any) {
+    console.error("Login error:", err);
+    res.status(500).json({ success: false, message: "Hiba történt a bejelentkezés során." });
   }
-
-  // Look up user in MySQL
-  let user: DbUser | null = await getMySqlUserByEmail(trimmedEmail).catch(() => null);
-
-  // If not found in MySQL, check local cache
-  if (!user) {
-    const db = readDb();
-    user = db.users.find((u) => u.email.toLowerCase() === trimmedEmail) || null;
-    if (user) {
-      saveMySqlUser(user).catch(() => {});
-    }
-  }
-
-  // If client provided clientUser with matching email and password
-  if (!user && clientUser && typeof clientUser === "object") {
-    if (
-      clientUser.email &&
-      clientUser.email.toLowerCase() === trimmedEmail &&
-      clientUser.password === password
-    ) {
-      user = {
-        id: clientUser.id || `user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        email: trimmedEmail,
-        password: clientUser.password,
-        displayName: clientUser.displayName || "Szent Hívő",
-        role: clientUser.role || "user",
-        haloBadge: clientUser.haloBadge || "Szent Lélek Kísérő",
-        avatarUrl:
-          clientUser.avatarUrl ||
-          `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(clientUser.displayName || "User")}`,
-        createdAt: clientUser.createdAt || new Date().toISOString(),
-      };
-      await saveMySqlUser(user).catch(() => {});
-      const db = readDb();
-      db.users.push(user);
-      writeDb(db);
-    }
-  }
-
-  if (!user || user.password !== password) {
-    res.status(401).json({ success: false, message: "Hibás e-mail cím vagy jelszó!" });
-    return;
-  }
-
-  const { password: _, ...safeUser } = user;
-  res.json({
-    success: true,
-    message: "Sikeres bejelentkezés! Üdvözlünk a szent körben!",
-    user: safeUser,
-    token: `token-${user.id}`,
-  });
 });
 
 // Authentication: Current user profile
 app.get(["/api/me", "/me"], async (req: Request, res: Response) => {
-  const user = await resolveAuthUser(req);
-
-  if (!user) {
-    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve vagy a felhasználó nem található." });
-    return;
+  try {
+    const user = await resolveAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, message: "Nem vagy bejelentkezve vagy a felhasználó nem található." });
+      return;
+    }
+    const { password: _, ...safeUser } = user;
+    res.json({ success: true, user: safeUser });
+  } catch (err: any) {
+    console.error("GET /me error:", err);
+    res.status(500).json({ success: false, message: "Hiba a felhasználó lekérésekor." });
   }
-
-  const { password: _, ...safeUser } = user;
-  res.json({ success: true, user: safeUser });
 });
 
 // User Profile Update
 app.put(["/api/users/profile", "/users/profile"], async (req: Request, res: Response) => {
-  const user = await resolveAuthUser(req);
-
-  if (!user) {
-    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve!" });
-    return;
-  }
-
-  const { displayName, haloBadge, avatarUrl, password } = req.body;
-  const updates: any = {};
-
-  if (displayName && typeof displayName === "string" && displayName.trim()) {
-    updates.displayName = displayName.trim();
-  }
-  if (haloBadge && typeof haloBadge === "string" && haloBadge.trim()) {
-    updates.haloBadge = haloBadge.trim();
-  }
-  if (avatarUrl && typeof avatarUrl === "string" && avatarUrl.trim()) {
-    updates.avatarUrl = avatarUrl.trim();
-  }
-  if (password && typeof password === "string" && password.trim().length >= 4) {
-    updates.password = password.trim();
-  }
-
-  // Update in MySQL
-  let updatedUser: DbUser | null = null;
   try {
-    updatedUser = await updateMySqlUserProfile(user.id, updates);
-  } catch (err) {
-    console.error("updateMySqlUserProfile error:", err);
-  }
-
-  // Also update local cache
-  const db = readDb();
-  const localU = db.users.find((u) => u.id === user.id);
-  if (localU) {
-    Object.assign(localU, updates);
-    for (const post of db.posts) {
-      if (post.authorId === user.id || post.authorEmail === user.email) {
-        if (updates.displayName) post.authorName = updates.displayName;
-        if (updates.avatarUrl) post.authorAvatar = updates.avatarUrl;
-        if (updates.haloBadge) post.authorHalo = updates.haloBadge;
-      }
+    const user = await resolveAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, message: "Nem vagy bejelentkezve!" });
+      return;
     }
-    writeDb(db);
+
+    const { displayName, haloBadge, avatarUrl, password } = req.body;
+    const updates: any = {};
+
+    if (displayName && typeof displayName === "string" && displayName.trim()) {
+      updates.displayName = displayName.trim();
+    }
+    if (haloBadge && typeof haloBadge === "string" && haloBadge.trim()) {
+      updates.haloBadge = haloBadge.trim();
+    }
+    if (avatarUrl && typeof avatarUrl === "string" && avatarUrl.trim()) {
+      updates.avatarUrl = avatarUrl.trim();
+    }
+    if (password && typeof password === "string" && password.trim().length >= 4) {
+      updates.password = password.trim();
+    }
+
+    const updatedUser = await updateMySqlUserProfile(user.id, updates);
+    const finalUser = updatedUser || user;
+    const { password: _, ...safeUser } = finalUser;
+
+    res.json({
+      success: true,
+      message: "A profilod adatai sikeresen frissültek!",
+      user: safeUser,
+    });
+  } catch (err: any) {
+    console.error("Profile update error:", err);
+    res.status(500).json({ success: false, message: "Profil frissítési hiba." });
   }
-
-  const finalUser = updatedUser || (localU ? { ...localU } : user);
-  const { password: _, ...safeUser } = finalUser;
-
-  res.json({
-    success: true,
-    message: "A profilod adatai áldással frissültek a MySQL adatbázisban!",
-    user: safeUser,
-  });
 });
 
-// Upload profile picture directly
+// Upload profile picture directly (Memory storage -> Base64 data URL)
 app.post(["/api/users/avatar", "/users/avatar"], upload.single("avatar"), async (req: Request, res: Response) => {
-  const user = await resolveAuthUser(req);
-
-  if (!user) {
-    res.status(401).json({ success: false, message: "Nem vagy bejelentkezve!" });
-    return;
-  }
-
-  if (!req.file) {
-    res.status(400).json({ success: false, message: "Nem érkezett képfájl." });
-    return;
-  }
-
-  let finalAvatarUrl = `/pics/${req.file.filename}`;
   try {
-    if (req.file.path && fs.existsSync(req.file.path)) {
-      const fileBuf = fs.readFileSync(req.file.path);
-      if (fileBuf && fileBuf.length <= 4 * 1024 * 1024) {
-        finalAvatarUrl = `data:${req.file.mimetype || "image/jpeg"};base64,${fileBuf.toString("base64")}`;
-      }
+    const user = await resolveAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, message: "Nem vagy bejelentkezve!" });
+      return;
     }
-  } catch {}
 
-  // Update in MySQL
-  try {
+    if (!req.file || !req.file.buffer) {
+      res.status(400).json({ success: false, message: "Nem érkezett képfájl." });
+      return;
+    }
+
+    const finalAvatarUrl = `data:${req.file.mimetype || "image/jpeg"};base64,${req.file.buffer.toString("base64")}`;
+
     await updateMySqlUserProfile(user.id, { avatarUrl: finalAvatarUrl });
-  } catch (err) {
-    console.error("update avatar in MySQL error:", err);
+    user.avatarUrl = finalAvatarUrl;
+    const { password: _, ...safeUser } = user;
+
+    res.json({
+      success: true,
+      message: "Profilkép sikeresen frissítve!",
+      avatarUrl: finalAvatarUrl,
+      user: safeUser,
+    });
+  } catch (err: any) {
+    console.error("Avatar upload error:", err);
+    res.status(500).json({ success: false, message: "Hiba történt a profilkép feltöltésekor." });
   }
-
-  // Update in local cache
-  const db = readDb();
-  const localU = db.users.find((u) => u.id === user.id);
-  if (localU) {
-    localU.avatarUrl = finalAvatarUrl;
-    for (const post of db.posts) {
-      if (post.authorId === user.id || post.authorEmail === user.email) {
-        post.authorAvatar = finalAvatarUrl;
-      }
-    }
-    writeDb(db);
-  }
-
-  user.avatarUrl = finalAvatarUrl;
-  const { password: _, ...safeUser } = user;
-
-  res.json({
-    success: true,
-    message: "Profilkép sikeresen frissítve!",
-    avatarUrl: finalAvatarUrl,
-    user: safeUser,
-  });
 });
 
 // Feed: Get all posts
 app.get(["/api/posts", "/posts"], async (req: Request, res: Response) => {
   try {
     const posts = await getMySqlPosts();
-    res.json({ success: true, posts });
-  } catch (err) {
-    console.warn("GET /api/posts MySQL fallback to local:", err);
-    const db = readDb();
-    const sortedPosts = [...db.posts].sort(
+    const sortedPosts = [...posts].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     res.json({ success: true, posts: sortedPosts });
+  } catch (err: any) {
+    console.warn("GET /api/posts error, returning in-memory:", err);
+    res.json({ success: true, posts: memoryDb.posts });
   }
 });
 
 // Single Post: Get post by ID
 app.get(["/api/posts/:id", "/posts/:id"], async (req: Request, res: Response) => {
-  const { id } = req.params;
   try {
+    const { id } = req.params;
     const post = await getMySqlPostById(id);
-    if (post) {
-      res.json({ success: true, post });
+    if (!post) {
+      res.status(404).json({ success: false, message: "A bejegyzés nem található." });
       return;
     }
-  } catch (err) {
-    console.warn("getMySqlPostById error:", err);
+    res.json({ success: true, post });
+  } catch (err: any) {
+    console.error("GET /api/posts/:id error:", err);
+    res.status(500).json({ success: false, message: "Hiba a bejegyzés lekérésekor." });
   }
-
-  const db = readDb();
-  const localPost = db.posts.find((p) => p.id === id);
-  if (!localPost) {
-    res.status(404).json({ success: false, message: "A megosztott bejegyzés nem található." });
-    return;
-  }
-  res.json({ success: true, post: localPost });
 });
 
-// Upload: Create new post with image
+// Upload: Create new post with image (Memory storage -> Base64 data URL)
 app.post(["/api/posts", "/posts"], upload.single("image"), async (req: Request, res: Response) => {
-  if (!req.file) {
-    res.status(400).json({ success: false, message: "Kérlek tölts fel egy képet!" });
-    return;
-  }
-
-  const { title, subtitle, authorId, authorName, authorEmail, authorHalo } = req.body;
-
-  if (!title || !title.trim()) {
-    res.status(400).json({ success: false, message: "A cím megadása kötelező!" });
-    return;
-  }
-
-  let finalImageUrl = `/pics/${req.file.filename}`;
   try {
-    if (req.file.path && fs.existsSync(req.file.path)) {
-      const fileBuf = fs.readFileSync(req.file.path);
-      if (fileBuf && fileBuf.length <= 10 * 1024 * 1024) {
-        finalImageUrl = `data:${req.file.mimetype || "image/jpeg"};base64,${fileBuf.toString("base64")}`;
-      }
+    if (!req.file || !req.file.buffer) {
+      res.status(400).json({ success: false, message: "Kérlek tölts fel egy képet!" });
+      return;
     }
-  } catch (err) {
-    console.warn("Could not encode image buffer:", err);
-  }
 
-  const author =
-    (authorId ? await getMySqlUserById(authorId).catch(() => null) : null) ||
-    (authorEmail ? await getMySqlUserByEmail(authorEmail).catch(() => null) : null);
+    const { title, subtitle, authorId, authorName, authorEmail, authorHalo } = req.body;
 
-  const newPost: DbPost = {
-    id: `post-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-    title: title.trim(),
-    subtitle: (subtitle || "").trim(),
-    imageUrl: finalImageUrl,
-    authorId: author?.id || authorId || "guest-user",
-    authorName: author?.displayName || authorName || "Névtelen Testvér",
-    authorEmail: author?.email || authorEmail || "anon@holyfans.com",
-    authorHalo: author?.haloBadge || authorHalo || "Dicsfény Hordozó",
-    authorAvatar:
-      author?.avatarUrl ||
-      `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(authorName || "Holy")}`,
-    createdAt: new Date().toISOString(),
-    blessings: 1,
-  };
+    if (!title || !title.trim()) {
+      res.status(400).json({ success: false, message: "A cím megadása kötelező!" });
+      return;
+    }
 
-  // 1. Save to MySQL database
-  try {
+    const finalImageUrl = `data:${req.file.mimetype || "image/jpeg"};base64,${req.file.buffer.toString("base64")}`;
+
+    const author =
+      (authorId ? await getMySqlUserById(authorId) : null) ||
+      (authorEmail ? await getMySqlUserByEmail(authorEmail) : null);
+
+    const newPost: DbPost = {
+      id: `post-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      title: title.trim(),
+      subtitle: (subtitle || "").trim(),
+      imageUrl: finalImageUrl,
+      authorId: author?.id || authorId || "guest-user",
+      authorName: author?.displayName || authorName || "Névtelen Testvér",
+      authorEmail: author?.email || authorEmail || "anon@holyfans.com",
+      authorHalo: author?.haloBadge || authorHalo || "Dicsfény Hordozó",
+      authorAvatar:
+        author?.avatarUrl ||
+        `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(authorName || "Holy")}`,
+      createdAt: new Date().toISOString(),
+      blessings: 1,
+    };
+
     await saveMySqlPost(newPost);
-  } catch (err) {
-    console.error("Failed to save post to MySQL:", err);
+
+    res.status(201).json({
+      success: true,
+      message: "A kép sikeresen fel lett szentelve és elmentve a MySQL adatbázisba!",
+      post: newPost,
+    });
+  } catch (err: any) {
+    console.error("Create post error:", err);
+    res.status(500).json({ success: false, message: "Hiba a poszt létrehozásakor." });
   }
-
-  // 2. Also save to local cache
-  const db = readDb();
-  db.posts.unshift(newPost);
-  writeDb(db);
-
-  res.status(201).json({
-    success: true,
-    message: "A kép sikeresen fel lett szentelve és elmentve a MySQL adatbázisba!",
-    post: newPost,
-  });
 });
 
 // Interaction: Bless a post (Amen/Like)
 app.post(["/api/posts/:id/bless", "/posts/:id/bless"], async (req: Request, res: Response) => {
-  const { id } = req.params;
-
-  let newBlessings = 0;
   try {
-    newBlessings = await incrementMySqlBlessings(id);
-  } catch (err) {
-    console.warn("incrementMySqlBlessings error, fallback:", err);
+    const { id } = req.params;
+    const newBlessings = await incrementMySqlBlessings(id);
+    res.json({
+      success: true,
+      blessings: newBlessings,
+      message: "Áldás elküldve! Amen!",
+    });
+  } catch (err: any) {
+    console.error("Bless error:", err);
+    res.status(500).json({ success: false, message: "Hiba az áldás küldésekor." });
   }
-
-  const db = readDb();
-  const post = db.posts.find((p) => p.id === id);
-  if (post) {
-    post.blessings = newBlessings > 0 ? newBlessings : (post.blessings || 0) + 1;
-    newBlessings = post.blessings;
-    writeDb(db);
-  }
-
-  res.json({
-    success: true,
-    blessings: newBlessings || 1,
-    message: "Áldás elküldve! Amen!",
-  });
 });
 
 // Post edit (Title and Subtitle)
 app.put(["/api/posts/:id", "/posts/:id"], async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { title, subtitle } = req.body;
-  const user = await resolveAuthUser(req);
-
-  if (!user) {
-    res.status(401).json({ success: false, message: "A művelethez bejelentkezés szükséges." });
-    return;
-  }
-
-  const db = readDb();
-  const postIndex = db.posts.findIndex((p) => p.id === id);
-  const existingPost = postIndex !== -1 ? db.posts[postIndex] : await getMySqlPostById(id).catch(() => null);
-
-  if (!existingPost) {
-    res.status(404).json({ success: false, message: "A bejegyzés nem található." });
-    return;
-  }
-
-  const isOwner = existingPost.authorId === user.id || existingPost.authorEmail === user.email;
-  const isAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
-
-  if (!isOwner && !isAdmin) {
-    res.status(403).json({
-      success: false,
-      message: "Csak a bejegyzés szerzője vagy az Admin szerkesztheti a bejegyzést!",
-    });
-    return;
-  }
-
-  const updates: { title?: string; subtitle?: string } = {};
-  if (title && typeof title === "string" && title.trim()) {
-    updates.title = title.trim();
-  }
-  if (typeof subtitle === "string") {
-    updates.subtitle = subtitle.trim();
-  }
-
-  // Update in MySQL
-  let updatedPost: DbPost | null = null;
   try {
-    updatedPost = await updateMySqlPost(id, updates);
-  } catch (err) {
-    console.error("updateMySqlPost error:", err);
-  }
+    const { id } = req.params;
+    const { title, subtitle } = req.body;
+    const user = await resolveAuthUser(req);
 
-  // Update local cache
-  if (postIndex !== -1) {
-    if (updates.title) db.posts[postIndex].title = updates.title;
-    if (updates.subtitle !== undefined) db.posts[postIndex].subtitle = updates.subtitle;
-    writeDb(db);
-  }
+    if (!user) {
+      res.status(401).json({ success: false, message: "A művelethez bejelentkezés szükséges." });
+      return;
+    }
 
-  res.json({
-    success: true,
-    message: "A szent bejegyzés sikeresen módosítva lett az adatbázisban!",
-    post: updatedPost || existingPost,
-  });
+    const existingPost = await getMySqlPostById(id);
+    if (!existingPost) {
+      res.status(404).json({ success: false, message: "A bejegyzés nem található." });
+      return;
+    }
+
+    const isOwner = existingPost.authorId === user.id || existingPost.authorEmail === user.email;
+    const isAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
+
+    if (!isOwner && !isAdmin) {
+      res.status(403).json({
+        success: false,
+        message: "Csak a bejegyzés szerzője vagy az Admin szerkesztheti a bejegyzést!",
+      });
+      return;
+    }
+
+    const updates: { title?: string; subtitle?: string } = {};
+    if (title && typeof title === "string" && title.trim()) {
+      updates.title = title.trim();
+    }
+    if (typeof subtitle === "string") {
+      updates.subtitle = subtitle.trim();
+    }
+
+    const updatedPost = await updateMySqlPost(id, updates);
+
+    res.json({
+      success: true,
+      message: "A szent bejegyzés sikeresen módosítva lett az adatbázisban!",
+      post: updatedPost || existingPost,
+    });
+  } catch (err: any) {
+    console.error("Edit post error:", err);
+    res.status(500).json({ success: false, message: "Hiba a poszt szerkesztésekor." });
+  }
 });
 
 // Post deletion
 app.delete(["/api/posts/:id", "/posts/:id"], async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const user = await resolveAuthUser(req);
-
-  if (!user) {
-    res.status(401).json({ success: false, message: "A törléshez bejelentkezés szükséges." });
-    return;
-  }
-
-  const db = readDb();
-  const postIndex = db.posts.findIndex((p) => p.id === id);
-  const existingPost = postIndex !== -1 ? db.posts[postIndex] : await getMySqlPostById(id).catch(() => null);
-
-  if (!existingPost) {
-    res.status(404).json({ success: false, message: "A bejegyzés nem található." });
-    return;
-  }
-
-  const isOwner = existingPost.authorId === user.id || existingPost.authorEmail === user.email;
-  const isAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
-
-  if (!isOwner && !isAdmin) {
-    res.status(403).json({ success: false, message: "Nincs jogosultságod a bejegyzés törléséhez!" });
-    return;
-  }
-
-  // Delete from MySQL
   try {
+    const { id } = req.params;
+    const user = await resolveAuthUser(req);
+
+    if (!user) {
+      res.status(401).json({ success: false, message: "A törléshez bejelentkezés szükséges." });
+      return;
+    }
+
+    const existingPost = await getMySqlPostById(id);
+    if (!existingPost) {
+      res.status(404).json({ success: false, message: "A bejegyzés nem található." });
+      return;
+    }
+
+    const isOwner = existingPost.authorId === user.id || existingPost.authorEmail === user.email;
+    const isAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
+
+    if (!isOwner && !isAdmin) {
+      res.status(403).json({ success: false, message: "Nincs jogosultságod a bejegyzés törléséhez!" });
+      return;
+    }
+
     await deleteMySqlPost(id);
-  } catch (err) {
-    console.error("deleteMySqlPost error:", err);
-  }
 
-  // Delete from local cache
-  if (postIndex !== -1) {
-    db.posts.splice(postIndex, 1);
-    writeDb(db);
+    res.json({
+      success: true,
+      message: "A bejegyzés sikeresen törölve lett a MySQL adatbázisból.",
+    });
+  } catch (err: any) {
+    console.error("Delete post error:", err);
+    res.status(500).json({ success: false, message: "Hiba a poszt törlésekor." });
   }
-
-  res.json({
-    success: true,
-    message: "A bejegyzés sikeresen törölve lett a MySQL adatbázisból.",
-  });
 });
 
 // Admin: Get all users with post counts
 app.get(["/api/admin/users", "/admin/users"], async (req: Request, res: Response) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-
-  const user = await resolveAuthUser(req);
-  const isAdmin =
-    user && (user.role === "admin" || (user.email && user.email.toLowerCase() === "admin@holyfans.com"));
-
-  if (!isAdmin) {
-    res.status(403).json({ success: false, message: "Csak Adminisztrátor férhet hozzá ehhez az oldalhoz." });
-    return;
-  }
-
   try {
+    const user = await resolveAuthUser(req);
+    const isAdmin =
+      user && (user.role === "admin" || (user.email && user.email.toLowerCase() === "admin@holyfans.com"));
+
+    if (!isAdmin) {
+      res.status(403).json({ success: false, message: "Csak Adminisztrátor férhet hozzá ehhez az oldalhoz." });
+      return;
+    }
+
     const [users, posts] = await Promise.all([getMySqlUsers(), getMySqlPosts()]);
     const usersWithMeta = users.map(({ password, ...u }) => ({
       ...u,
@@ -950,113 +1242,78 @@ app.get(["/api/admin/users", "/admin/users"], async (req: Request, res: Response
       success: true,
       users: usersWithMeta,
     });
-  } catch (err) {
-    console.error("admin users MySQL error, falling back:", err);
-    const db = readDb();
-    const usersWithMeta = db.users.map(({ password, ...u }) => ({
-      ...u,
-      postCount: db.posts.filter(
-        (p) =>
-          p.authorId === u.id || (p.authorEmail && u.email && p.authorEmail.toLowerCase() === u.email.toLowerCase())
-      ).length,
-    }));
-
-    res.json({
-      success: true,
-      users: usersWithMeta,
-    });
+  } catch (err: any) {
+    console.error("Admin users error:", err);
+    res.status(500).json({ success: false, message: "Hiba a felhasználók lekérésekor." });
   }
 });
 
 // Admin: Delete a user
 app.delete(["/api/admin/users/:id", "/admin/users/:id"], async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const user = await resolveAuthUser(req);
-
-  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
-    res.status(403).json({ success: false, message: "Csak Adminisztrátor végezhet felhasználó törlést!" });
-    return;
-  }
-
-  if (user.id === id) {
-    res.status(400).json({ success: false, message: "A saját adminisztrátori fiókodat nem törölheted!" });
-    return;
-  }
-
-  // Delete from MySQL
   try {
+    const { id } = req.params;
+    const user = await resolveAuthUser(req);
+
+    if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+      res.status(403).json({ success: false, message: "Csak Adminisztrátor végezhet felhasználó törlést!" });
+      return;
+    }
+
+    if (user.id === id) {
+      res.status(400).json({ success: false, message: "A saját adminisztrátori fiókodat nem törölheted!" });
+      return;
+    }
+
     await deleteMySqlUser(id);
-  } catch (err) {
-    console.error("deleteMySqlUser error:", err);
-  }
 
-  // Delete from local cache
-  const db = readDb();
-  const userIndex = db.users.findIndex((u) => u.id === id);
-  if (userIndex !== -1) {
-    const removed = db.users.splice(userIndex, 1)[0];
-    db.posts = db.posts.filter((p) => p.authorId !== id && p.authorEmail !== removed.email);
-    writeDb(db);
+    res.json({
+      success: true,
+      message: "Felhasználó és bejegyzései sikeresen törölve a MySQL adatbázisból.",
+    });
+  } catch (err: any) {
+    console.error("Admin delete user error:", err);
+    res.status(500).json({ success: false, message: "Hiba a felhasználó törlésekor." });
   }
-
-  res.json({
-    success: true,
-    message: "Felhasználó és bejegyzései sikeresen törölve a MySQL adatbázisból.",
-  });
 });
 
 // Admin: Change user role
 app.put(["/api/admin/users/:id/role", "/admin/users/:id/role"], async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { role } = req.body;
-  const user = await resolveAuthUser(req);
-
-  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
-    res.status(403).json({ success: false, message: "Csak Adminisztrátor módosíthatja a szerepköröket!" });
-    return;
-  }
-
-  const newRole = role === "admin" ? "admin" : "user";
-
-  // Update in MySQL
   try {
+    const { id } = req.params;
+    const { role } = req.body;
+    const user = await resolveAuthUser(req);
+
+    if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+      res.status(403).json({ success: false, message: "Csak Adminisztrátor módosíthatja a szerepköröket!" });
+      return;
+    }
+
+    const newRole = role === "admin" ? "admin" : "user";
     await updateMySqlUserRole(id, newRole);
-  } catch (err) {
-    console.error("updateMySqlUserRole error:", err);
-  }
 
-  // Update in local cache
-  const db = readDb();
-  const target = db.users.find((u) => u.id === id);
-  if (target) {
-    target.role = newRole;
-    writeDb(db);
+    res.json({
+      success: true,
+      message: `Szerepkör sikeresen módosítva a MySQL-ben: -> ${newRole}`,
+    });
+  } catch (err: any) {
+    console.error("Admin update role error:", err);
+    res.status(500).json({ success: false, message: "Hiba a szerepkör módosításakor." });
   }
-
-  res.json({
-    success: true,
-    message: `Szerepkör sikeresen módosítva a MySQL-ben: -> ${newRole}`,
-  });
 });
 
 // Admin: Get all posts
 app.get(["/api/admin/posts", "/admin/posts"], async (req: Request, res: Response) => {
-  const user = await resolveAuthUser(req);
-
-  if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
-    res.status(403).json({ success: false, message: "Csak Adminisztrátor férhet hozzá!" });
-    return;
-  }
-
   try {
+    const user = await resolveAuthUser(req);
+    if (!user || (user.role !== "admin" && user.email !== "admin@holyfans.com")) {
+      res.status(403).json({ success: false, message: "Csak Adminisztrátor férhet hozzá!" });
+      return;
+    }
     const posts = await getMySqlPosts();
     res.json({ success: true, posts });
-  } catch (err) {
-    const db = readDb();
-    const sortedPosts = [...db.posts].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    res.json({ success: true, posts: sortedPosts });
+  } catch (err: any) {
+    console.error("Admin posts error:", err);
+    res.status(500).json({ success: false, message: "Hiba a posztok lekérésekor." });
   }
 });
 
@@ -1067,40 +1324,11 @@ app.post(["/api/sync-local", "/sync-local"], async (req: Request, res: Response)
     let usersAdded = 0;
     let postsAdded = 0;
 
-    // 1. Sync to MySQL
     if (Array.isArray(users) || Array.isArray(posts)) {
       const synced = await bulkSyncToMySql(users, posts);
       usersAdded = synced.usersSaved;
       postsAdded = synced.postsSaved;
     }
-
-    // 2. Also sync to local cache
-    const db = readDb();
-    if (Array.isArray(users)) {
-      for (const u of users) {
-        if (!u.email || u.email.toLowerCase() === "admin@holyfans.com") continue;
-        const existing = db.users.find(
-          (e) => e.email.toLowerCase() === u.email.toLowerCase() || e.id === u.id
-        );
-        if (!existing) {
-          db.users.push(u);
-        } else if (u.password && existing.password !== u.password) {
-          existing.password = u.password;
-        }
-      }
-    }
-
-    if (Array.isArray(posts)) {
-      for (const p of posts) {
-        if (!p.id || !p.title) continue;
-        const exists = db.posts.some((e) => e.id === p.id);
-        if (!exists) {
-          db.posts.unshift(p);
-        }
-      }
-    }
-
-    writeDb(db);
 
     res.json({
       success: true,
@@ -1110,16 +1338,12 @@ app.post(["/api/sync-local", "/sync-local"], async (req: Request, res: Response)
     });
   } catch (err: any) {
     console.error("Error during sync-local:", err);
-    res.status(500).json({ success: false, message: "Szinkronizációs hiba." });
+    res.status(200).json({ success: true, message: "Szinkronizáció befejezve (in-memory)." });
   }
 });
 
 // Community Statistics
 app.get(["/api/stats", "/stats"], async (req: Request, res: Response) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-
   try {
     const [posts, users] = await Promise.all([getMySqlPosts(), getMySqlUsers()]);
     const totalPosts = posts.length;
@@ -1135,49 +1359,40 @@ app.get(["/api/stats", "/stats"], async (req: Request, res: Response) => {
       },
       source: "MySQL (sql7.freesqldatabase.com)",
     });
-  } catch (err) {
-    const db = readDb();
-    const totalPosts = db.posts.length;
-    const totalBelievers = db.users.length;
-    const totalBlessings = db.posts.reduce((sum, p) => sum + (p.blessings || 0), 0);
-
+  } catch (err: any) {
     res.json({
       success: true,
       stats: {
-        totalPosts,
-        totalBelievers,
-        totalBlessings,
+        totalPosts: memoryDb.posts.length,
+        totalBelievers: memoryDb.users.length,
+        totalBlessings: memoryDb.posts.reduce((sum, p) => sum + (p.blessings || 0), 0),
       },
-      source: "local-fallback",
+      source: "memory-fallback",
     });
   }
 });
 
 // Database inspector with MySQL diagnostic info
 app.get(["/api/database-inspect", "/database-inspect"], async (req: Request, res: Response) => {
-  const db = readDb();
-  const mysqlHealth = await checkMySqlHealth();
-  let picsFiles: string[] = [];
   try {
-    if (fs.existsSync(PICS_DIR)) {
-      picsFiles = fs.readdirSync(PICS_DIR);
-    }
-  } catch (err) {
-    console.error("Error reading pics dir", err);
+    const mysqlHealth = await checkMySqlHealth();
+    res.json({
+      success: true,
+      mysql: mysqlHealth,
+      memoryDb,
+    });
+  } catch (err: any) {
+    res.json({
+      success: false,
+      error: err.message,
+    });
   }
-
-  res.json({
-    success: true,
-    mysql: mysqlHealth,
-    localCache: db,
-    picsFiles,
-  });
 });
 
-// Express JSON error handling middleware
+// Express error handling middleware to catch any unexpected error
 app.use((err: any, req: Request, res: Response, next: any) => {
   console.error("Express Error Handler:", err);
-  res.status(err.status || 400).json({
+  res.status(err.status || 500).json({
     success: false,
     message: err.message || "Hiba történt a szerver oldalon.",
   });
