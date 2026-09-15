@@ -102,10 +102,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   }, []);
 
-  // Full refresh of both users, posts, and parent feed
-  const refreshAll = useCallback(async () => {
+  // Full refresh of both users, posts, and parent feed (used on manual refresh or delete actions)
+  const refreshAll = useCallback(async (syncParent = true) => {
     await Promise.all([fetchUsers(), fetchPosts()]);
-    onPostsRefreshed();
+    if (syncParent) {
+      onPostsRefreshed();
+    }
   }, [fetchUsers, fetchPosts, onPostsRefreshed]);
 
   // Keep adminPosts updated if initialPosts changes and adminPosts is empty
@@ -115,13 +117,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   }, [initialPosts, adminPosts.length]);
 
-  // Auto-fetch whenever modal is opened
+  // Auto-fetch data inside modal once when opened without causing circular parent re-renders
   useEffect(() => {
     if (isOpen) {
-      refreshAll();
+      // Fetch users and posts for the modal without triggering parent setPosts
+      fetchUsers();
+      fetchPosts();
       setNotification(null);
     }
-  }, [isOpen, refreshAll]);
+  }, [isOpen, fetchUsers, fetchPosts]);
 
   if (!isOpen || !currentUser) return null;
 
@@ -326,7 +330,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             {/* Quick Refresh All */}
             <button
               type="button"
-              onClick={refreshAll}
+              onClick={() => refreshAll(true)}
               title="Adatok azonnali frissítése a szerverről"
               className="p-2 rounded-xl bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 hover:text-amber-400 transition-colors shrink-0"
             >
@@ -658,7 +662,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={refreshAll}
+                  onClick={() => refreshAll(true)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition-all"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loadingUsers || loadingPosts ? "animate-spin" : ""}`} />

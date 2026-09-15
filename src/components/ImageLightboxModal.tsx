@@ -54,10 +54,10 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/90 backdrop-blur-lg">
-      <div className="relative max-w-5xl w-full max-h-[95vh] flex flex-col bg-neutral-900 border border-amber-500/40 rounded-2xl shadow-[0_0_80px_rgba(245,158,11,0.3)] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-neutral-950/90 backdrop-blur-lg w-full max-w-full">
+      <div className="relative max-w-5xl w-full max-h-[95vh] flex flex-col bg-neutral-900 border border-amber-500/40 rounded-2xl shadow-[0_0_80px_rgba(245,158,11,0.3)] overflow-hidden my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-neutral-800 bg-neutral-950/70">
+        <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-3.5 border-b border-neutral-800 bg-neutral-950/70">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full border border-amber-400 overflow-hidden">
               <img
@@ -97,19 +97,19 @@ export const ImageLightboxModal: React.FC<ImageLightboxModalProps> = ({
         </div>
 
         {/* Caption & Actions */}
-        <div className="p-5 bg-neutral-950/80 border-t border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h3 className="font-cinzel text-lg font-bold text-amber-200">
+        <div className="p-3.5 sm:p-5 bg-neutral-950/80 border-t border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="space-y-1 min-w-0">
+            <h3 className="font-cinzel text-base sm:text-lg font-bold text-amber-200 truncate sm:whitespace-normal">
               {post.title}
             </h3>
             {post.subtitle && (
-              <p className="text-sm text-neutral-300 italic font-serif">
+              <p className="text-xs sm:text-sm text-neutral-300 italic font-serif line-clamp-2 sm:line-clamp-none">
                 {post.subtitle}
               </p>
             )}
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
             <button
               onClick={handleShare}
               className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${
