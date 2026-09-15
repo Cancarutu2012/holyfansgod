@@ -28,6 +28,24 @@
       "haloBadge": "Kerub Fényhozó",
       "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=%C3%9Aj%20H%C3%ADv%C5%91",
       "createdAt": "2026-09-14T13:27:29.738Z"
+    },
+    {
+      "id": "user-1789464382155-hwt7p",
+      "email": "testuj@valami.hu",
+      "password": "password123",
+      "displayName": "Teszt Elek Új",
+      "haloBadge": "Szent Lélek Kísérő",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Teszt%20Elek%20%C3%9Aj",
+      "createdAt": "2026-09-15T09:26:22.156Z"
+    },
+    {
+      "id": "user-1789464751405-rcfyu",
+      "email": "cisztermedia@gmail.com",
+      "password": "password123",
+      "displayName": "Ciszter Média",
+      "haloBadge": "Szent Lélek Kísérő",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Ciszter%20M%C3%A9dia",
+      "createdAt": "2026-09-15T09:32:31.405Z"
     }
   ],
   "posts": [

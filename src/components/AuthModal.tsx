@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { User } from "../types";
 import { api } from "../services/apiClient";
 import { X, Sparkles, LogIn, UserPlus, AlertCircle, CheckCircle, ShieldCheck } from "lucide-react";
@@ -23,6 +23,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTab(initialTab);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+    }
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -185,6 +193,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           >
             {loading ? "Feldolgozás..." : tab === "register" ? "Szent Regisztráció" : "Belépés a Fénybe"}
           </button>
+
+          {/* Quick Admin fill button */}
+          {tab === "login" && (
+            <div className="pt-2 border-t border-neutral-800/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("admin@holyfans.com");
+                  setPassword("admin");
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>Admin fiók automatikus kitöltése (admin@holyfans.com)</span>
+              </button>
+            </div>
+          )}
         </form>
       </div>
     </div>

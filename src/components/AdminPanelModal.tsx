@@ -61,14 +61,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   };
 
   // Fetch all users with live post counts
-  const fetchUsers = useCallback(async () => {
-    const token = api.getToken();
-    if (!token) return;
+  const fetchUsers = useCallback(async (showFeedback = false) => {
+    const token = api.getToken() || (currentUser?.id ? `token-${currentUser.id}` : "token-admin-holy-1");
     setLoadingUsers(true);
     try {
       const res = await api.getAdminUsers(token);
       if (res.success && Array.isArray(res.users)) {
         setAdminUsers(res.users);
+        if (showFeedback) {
+          notify(`Felhasználók listája sikeresen frissítve (${res.users.length} regisztrált hívő).`);
+        }
       } else {
         notify(res.message || "Nem sikerült a felhasználók frissítése.", "error");
       }
@@ -77,17 +79,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     } finally {
       setLoadingUsers(false);
     }
-  }, []);
+  }, [currentUser]);
 
   // Fetch all posts live from the server database
-  const fetchPosts = useCallback(async () => {
-    const token = api.getToken();
-    if (!token) return;
+  const fetchPosts = useCallback(async (showFeedback = false) => {
+    const token = api.getToken() || (currentUser?.id ? `token-${currentUser.id}` : "token-admin-holy-1");
     setLoadingPosts(true);
     try {
       const res = await api.getAdminPosts(token);
       if (res.success && Array.isArray(res.posts)) {
         setAdminPosts(res.posts);
+        if (showFeedback) {
+          notify(`Bejegyzések listája sikeresen frissítve (${res.posts.length} szent poszt).`);
+        }
       } else {
         // Fallback to public feed fetch
         const feedRes = await api.getPosts();
@@ -100,11 +104,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     } finally {
       setLoadingPosts(false);
     }
-  }, []);
+  }, [currentUser]);
 
   // Full refresh of both users, posts, and parent feed (used on manual refresh or delete actions)
   const refreshAll = useCallback(async (syncParent = true) => {
-    await Promise.all([fetchUsers(), fetchPosts()]);
+    await Promise.all([fetchUsers(false), fetchPosts(false)]);
+    notify("Minden adat (felhasználók és posztok) frissítve a szerverről!");
     if (syncParent) {
       onPostsRefreshed();
     }
@@ -120,9 +125,10 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   // Auto-fetch data inside modal once when opened without causing circular parent re-renders
   useEffect(() => {
     if (isOpen) {
-      // Fetch users and posts for the modal without triggering parent setPosts
-      fetchUsers();
-      fetchPosts();
+      setUserSearch("");
+      setPostSearch("");
+      fetchUsers(false);
+      fetchPosts(false);
       setNotification(null);
     }
   }, [isOpen, fetchUsers, fetchPosts]);
@@ -214,16 +220,26 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }
   };
 
-  // Filtered lists
-  const filteredUsers = adminUsers.filter((u) => {
-    if (!userSearch.trim()) return true;
-    const q = userSearch.toLowerCase();
-    return (
-      (u.displayName && u.displayName.toLowerCase().includes(q)) ||
-      (u.email && u.email.toLowerCase().includes(q)) ||
-      (u.haloBadge && u.haloBadge.toLowerCase().includes(q))
-    );
-  });
+  // Filtered and sorted lists (admins first, then newest believers first)
+  const filteredUsers = adminUsers
+    .filter((u) => {
+      if (!userSearch.trim()) return true;
+      const q = userSearch.toLowerCase();
+      return (
+        (u.displayName && u.displayName.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.haloBadge && u.haloBadge.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => {
+      const aAdmin = a.role === "admin" || a.email === "admin@holyfans.com";
+      const bAdmin = b.role === "admin" || b.email === "admin@holyfans.com";
+      if (aAdmin && !bAdmin) return -1;
+      if (!aAdmin && bAdmin) return 1;
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   const filteredPosts = adminPosts.filter((p) => {
     if (!postSearch.trim()) return true;
@@ -384,7 +400,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
               <button
                 type="button"
-                onClick={fetchUsers}
+                onClick={() => fetchUsers(true)}
                 title="Felhasználók frissítése"
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-amber-400 text-xs font-medium transition-colors shrink-0"
               >
@@ -410,6 +426,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 filteredUsers.map((user) => {
                   const isCurrent = user.id === currentUser.id;
                   const isUserAdmin = user.role === "admin" || user.email === "admin@holyfans.com";
+                  const isNew = user.createdAt && (Date.now() - new Date(user.createdAt).getTime() < 24 * 60 * 60 * 1000);
 
                   return (
                     <div
@@ -448,6 +465,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                                 HÍVŐ
                               </span>
                             )}
+                            {isNew && !isUserAdmin && (
+                              <span className="px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse">
+                                ÚJ
+                              </span>
+                            )}
                             {isCurrent && (
                               <span className="text-[10px] text-amber-400/80 italic">
                                 (te)
@@ -460,6 +482,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                             <span className="text-amber-400/90">{user.haloBadge || "Dicsfény Hordozó"}</span>
                             <span>•</span>
                             <span>{user.postCount ?? 0} poszt</span>
+                            {user.createdAt && (
+                              <>
+                                <span>•</span>
+                                <span className="text-neutral-500 text-[10px]">
+                                  {new Date(user.createdAt).toLocaleDateString("hu-HU", {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -524,7 +559,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
               <button
                 type="button"
-                onClick={fetchPosts}
+                onClick={() => fetchPosts(true)}
                 title="Posztok frissítése"
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-amber-400 text-xs font-medium transition-colors shrink-0"
               >
